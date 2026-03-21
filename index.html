@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>can we kick it</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Nunito:wght@700;800&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0a0a0a}script[type="text/babel"]{display:none!important}.leaflet-container{border-radius:12px}</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+firebase.initializeApp({apiKey:"AIzaSyDMEbkXMghCBPdaiT3JNoVBzSpEOB0chbc",authDomain:"can-we-kick-it.firebaseapp.com",databaseURL:"https://can-we-kick-it-default-rtdb.firebaseio.com",projectId:"can-we-kick-it",storageBucket:"can-we-kick-it.firebasestorage.app",messagingSenderId:"221903524757",appId:"1:221903524757:web:66d58e49727f96ccf09c9c"});
+window.db=firebase.database();window.auth=firebase.auth();
+</script>
+<script type="text/babel">
+const{useState,useMemo,useCallback,useEffect,useRef}=React;
+const db=window.db,au=window.auth;
+const SANDBOX=new URLSearchParams(window.location.search).get("sandbox")==="true";
+const P=path=>SANDBOX?`sandbox/${path}`:path;// prefix all db paths
+const DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"],MN=["January","February","March","April","May","June","July","August","September","October","November","December"];
+const CO=[{n:"Coral",v:"#FF6B6B"},{n:"Ocean",v:"#4ECDC4"},{n:"Sunflower",v:"#FFE66D"},{n:"Lavender",v:"#A78BFA"},{n:"Mint",v:"#6BCB77"},{n:"Sky",v:"#60A5FA"},{n:"Peach",v:"#FDBA74"},{n:"Rose",v:"#F9A8D4"},{n:"Lime",v:"#BEF264"},{n:"Teal",v:"#2DD4BF"}];
+const DS=8,DE=23,ADMIN="modom87@gmail.com";
+const gDIM=(y,m)=>new Date(y,m+1,0).getDate(),gFDOM=(y,m)=>new Date(y,m,1).getDay();
+const fD=(y,m,d)=>`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+const pT=s=>{const[h,m]=s.split(":").map(Number);return h+m/60};
+const fTD=h=>{const hr=Math.floor(h),mn=Math.round((h-hr)*60),ap=hr>=12?"PM":"AM",h12=hr===0?12:hr>12?hr-12:hr;return`${h12}:${String(mn).padStart(2,"0")} ${ap}`};
+// Status colors
+const SC={pending:"#94a3b8",accepted:"#22c55e",declined:"#ef4444",raincheck:"#f59e0b"};
+
+// Geocode: address → {lat,lng} using Nominatim (free, no API key)
+async function geocode(address){
+if(!address||!address.trim())return null;
+// Check cache first
+const cacheKey=address.trim().toLowerCase().replace(/[^a-z0-9]/g,"_");
+const snap=await db.ref(P(`geocache/${cacheKey}`)).once("value");
+if(snap.val())return snap.val();
+try{
+const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`);
+const d=await r.json();
+if(d.length>0){const loc={lat:parseFloat(d[0].lat),lng:parseFloat(d[0].lon)};
+db.ref(P(`geocache/${cacheKey}`)).set(loc);return loc}
+}catch(e){console.log("geocode error",e)}return null}
+
+function generateICS(events){let s="BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//CWKI//EN\nCALSCALE:GREGORIAN\n";
+events.forEach(e=>{const[y,m,d]=e.date.split("-").map(Number);const[sh,sm]=e.timeStart.split(":").map(Number);const[eh,em]=e.timeEnd.split(":").map(Number);const p=n=>String(n).padStart(2,"0");
+s+=`BEGIN:VEVENT\nDTSTART:${y}${p(m)}${p(d)}T${p(sh)}${p(sm)}00\nDTEND:${y}${p(m)}${p(d)}T${p(eh)}${p(em)}00\nSUMMARY:${e.title||"Hangout"}\nDESCRIPTION:${e.description||""}\nEND:VEVENT\n`});
+s+="END:VCALENDAR";return s}
+function dlICS(events,fn){const b=new Blob([generateICS(events)],{type:"text/calendar"});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=fn||"events.ics";a.click();URL.revokeObjectURL(u)}
+function sendNotif(db,from,toNames,msg,allUsers,type,refId){Object.entries(allUsers).forEach(([uid,u])=>{if(toNames.includes(u.name))db.ref(P(`notifications/${uid}`)).push({from,message:msg,time:Date.now(),read:false,type:type||"general",refId:refId||null})})}
+
+function Modal({isOpen,onClose,children}){if(!isOpen)return null;
+return(<div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.3)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}>
+<div onClick={e=>e.stopPropagation()} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:16,padding:28,minWidth:340,maxWidth:460,boxShadow:"0 25px 60px rgba(0,0,0,0.15)",maxHeight:"90vh",overflowY:"auto"}}>{children}</div></div>)}
+
+/* ===== LANDING ===== */
+function Landing({onEnter}){return(<div onClick={onEnter} style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"#0a0a0a",cursor:"pointer",userSelect:"none"}}>
+<img src="can_we_kick_it_transp.png" alt="logo" style={{maxWidth:"80vw",maxHeight:"60vh",objectFit:"contain"}}/>
+<p style={{color:"#475569",fontSize:14,marginTop:24,fontFamily:"'DM Sans',sans-serif",letterSpacing:1,animation:"pulse 2s ease-in-out infinite"}}>tap to enter</p>
+<style>{`@keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}`}</style></div>)}
+
+/* ===== AUTH ===== */
+function Auth({onAuth}){const[mode,setMode]=useState("signin");const[email,setEmail]=useState("");const[pw,setPw]=useState("");
+const[name,setName]=useState("");const[phone,setPhone]=useState("");const[addr,setAddr]=useState("");
+const[color,setColor]=useState(CO[0].v);const[taken,setTaken]=useState([]);const[err,setErr]=useState("");const[ld,setLd]=useState(false);
+useEffect(()=>{db.ref(P("users")).once("value",s=>{setTaken(Object.values(s.val()||{}).map(u=>u.color).filter(Boolean))})},[]);
+const iS={background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:8,padding:"12px 14px",color:"#1e293b",fontSize:14,outline:"none",width:"100%",boxSizing:"border-box",marginBottom:12};
+const doUp=async()=>{if(!name.trim()||!email||!pw){setErr("fill all required fields");return}if(pw.length<6){setErr("password: 6+ chars");return}
+setLd(true);setErr("");try{const c=await au.createUserWithEmailAndPassword(email,pw);
+await db.ref(P(`users/${c.user.uid}`)).set({name:name.trim(),color,email,phone:phone.trim(),address:addr.trim(),notifyEmail:true,notifyText:false,showReadReceipts:true,hasSeenOnboarding:false,createdAt:Date.now()});
+onAuth(c.user)}catch(e){setErr(e.message)}setLd(false)};
+const doIn=async()=>{if(!email||!pw){setErr("enter email and password");return}setLd(true);setErr("");
+try{await au.signInWithEmailAndPassword(email,pw)}catch(e){setErr("invalid email or password")}setLd(false)};
+return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f8fafc",fontFamily:"'DM Sans','Nunito',sans-serif",padding:20}}>
+<div style={{background:"#fff",borderRadius:20,padding:32,maxWidth:420,width:"100%",boxShadow:"0 4px 24px rgba(0,0,0,0.08)",border:"1px solid #e2e8f0"}}>
+<div style={{textAlign:"center",marginBottom:24}}><img src="can_we_kick_it_transp.png" alt="logo" style={{height:80,objectFit:"contain"}}/></div>
+<div style={{display:"flex",marginBottom:24,borderRadius:10,overflow:"hidden",border:"1px solid #e2e8f0"}}>
+<button onClick={()=>{setMode("signin");setErr("")}} style={{flex:1,padding:"10px 0",fontSize:14,fontWeight:600,cursor:"pointer",border:"none",background:mode==="signin"?"#e040fb":"#fff",color:mode==="signin"?"#fff":"#64748b"}}>sign in</button>
+<button onClick={()=>{setMode("signup");setErr("")}} style={{flex:1,padding:"10px 0",fontSize:14,fontWeight:600,cursor:"pointer",border:"none",background:mode==="signup"?"#e040fb":"#fff",color:mode==="signup"?"#fff":"#64748b"}}>sign up</button></div>
+{mode==="signup"&&<><input value={name} onChange={e=>setName(e.target.value)} placeholder="your name *" style={iS}/>
+<div style={{marginBottom:12}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>pick your color *</label>
+<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{CO.map(c=><button key={c.v} onClick={()=>setColor(c.v)} disabled={taken.includes(c.v)} style={{width:30,height:30,borderRadius:"50%",border:color===c.v?"3px solid #1e293b":"2px solid transparent",background:c.v,cursor:taken.includes(c.v)?"not-allowed":"pointer",opacity:taken.includes(c.v)?0.25:1}}/>)}</div></div>
+<input value={addr} onChange={e=>setAddr(e.target.value)} placeholder="address" style={iS}/>
+<input value={phone} onChange={e=>setPhone(e.target.value)} placeholder="phone number" style={iS}/></>}
+<input value={email} onChange={e=>setEmail(e.target.value)} placeholder="email *" type="email" style={iS}/>
+<input value={pw} onChange={e=>setPw(e.target.value)} placeholder="password *" type="password" onKeyDown={e=>e.key==="Enter"&&(mode==="signin"?doIn():doUp())} style={iS}/>
+{err&&<p style={{color:"#ef4444",fontSize:13,marginBottom:12}}>{err}</p>}
+<button onClick={mode==="signin"?doIn:doUp} disabled={ld} style={{width:"100%",padding:"14px 0",borderRadius:12,fontSize:15,fontWeight:700,cursor:ld?"wait":"pointer",background:"#e040fb",color:"#fff",border:"none",opacity:ld?0.6:1}}>{ld?"...":(mode==="signin"?"sign in":"create account")}</button>
+</div></div>)}
+
+/* ===== SETTINGS ===== */
+function Settings({user,profile,allUsers,onBack}){
+const[name,setName]=useState(profile?.name||"");const[phone,setPhone]=useState(profile?.phone||"");
+const[addr,setAddr]=useState(profile?.address||"");const[color,setColor]=useState(profile?.color||CO[0].v);
+const[ne,setNE]=useState(profile?.notifyEmail!==false);const[nt,setNT]=useState(profile?.notifyText===true);
+const[srr,setSRR]=useState(profile?.showReadReceipts!==false);
+const[saved,setSaved]=useState(false);const[err,setErr]=useState("");
+const tc=Object.entries(allUsers).filter(([uid])=>uid!==user.uid).map(([,u])=>u.color).filter(Boolean);
+const save=async()=>{if(!name.trim()){setErr("name required");return}setErr("");const on=profile?.name;
+await db.ref(P(`users/${user.uid}`)).update({name:name.trim(),phone:phone.trim(),address:addr.trim(),color,notifyEmail:ne,notifyText:nt,showReadReceipts:srr});
+if(on&&on!==name.trim()){const bs=await db.ref(P("busyTimes")).once("value");const bt=bs.val()||{};if(bt[on]){bt[name.trim()]=bt[on];delete bt[on];await db.ref(P("busyTimes")).set(bt)}}
+setSaved(true);setTimeout(()=>setSaved(false),2000)};
+const iS={background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:8,padding:"12px 14px",color:"#1e293b",fontSize:14,outline:"none",width:"100%",boxSizing:"border-box",marginBottom:14};
+return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fafc",minHeight:"100vh",color:"#1e293b",padding:"24px 16px"}}><div style={{maxWidth:500,margin:"0 auto"}}>
+<button onClick={onBack} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:14,fontWeight:600,marginBottom:20}}>‹ back</button>
+<h1 style={{fontFamily:"'Nunito',sans-serif",fontSize:28,fontWeight:800,marginBottom:24,background:"linear-gradient(135deg,#e040fb,#60a5fa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>settings</h1>
+<div style={{background:"#fff",borderRadius:16,border:"1px solid #e2e8f0",padding:24,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",marginBottom:20}}>
+<label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:4}}>name</label><input value={name} onChange={e=>setName(e.target.value)} style={iS}/>
+<label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>color</label>
+<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>{CO.map(c=>{const tk=tc.includes(c.v)&&c.v!==profile?.color;
+return<button key={c.v} onClick={()=>!tk&&setColor(c.v)} disabled={tk} style={{width:30,height:30,borderRadius:"50%",border:color===c.v?"3px solid #1e293b":"2px solid transparent",background:c.v,cursor:tk?"not-allowed":"pointer",opacity:tk?0.25:1}}/>})}</div>
+<label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:4}}>email</label><input value={profile?.email||""} disabled style={{...iS,opacity:0.5}}/>
+<label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:4}}>address</label><input value={addr} onChange={e=>setAddr(e.target.value)} style={iS}/>
+<label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:4}}>phone</label><input value={phone} onChange={e=>setPhone(e.target.value)} style={iS}/>
+{err&&<p style={{color:"#ef4444",fontSize:13,marginBottom:8}}>{err}</p>}{saved&&<p style={{color:"#22c55e",fontSize:13,marginBottom:8}}>saved!</p>}
+<button onClick={save} style={{width:"100%",padding:"12px 0",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer",background:"#e040fb",color:"#fff",border:"none",marginBottom:12}}>save changes</button></div>
+<div style={{background:"#fff",borderRadius:16,border:"1px solid #e2e8f0",padding:24,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",marginBottom:20}}>
+<h3 style={{fontSize:16,fontWeight:700,marginBottom:16}}>notification preferences</h3>
+{[["email notifications","get notified via email",ne,setNE],["text notifications","receive SMS notifications",nt,setNT],["read receipts","let others see when you've read their proposals",srr,setSRR]].map(([label,desc,val,set])=>(
+<label key={label} style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer",marginBottom:12}}>
+<div onClick={()=>set(!val)} style={{width:40,height:22,borderRadius:11,background:val?"#e040fb":"#cbd5e1",position:"relative",cursor:"pointer",transition:"background 0.2s",flexShrink:0}}>
+<div style={{width:18,height:18,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:val?20:2,transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.2)"}}/></div>
+<div><div style={{fontSize:14,fontWeight:600}}>{label}</div><div style={{fontSize:12,color:"#94a3b8"}}>{desc}</div></div></label>))}
+<p style={{fontSize:11,color:"#94a3b8"}}>email & text delivery coming soon — read receipts are active now</p></div>
+<button onClick={()=>au.signOut()} style={{width:"100%",padding:"12px 0",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",background:"#fff",color:"#ef4444",border:"1px solid #fecaca"}}>sign out</button>
+</div></div>)}
+
+/* ===== NOTIFICATIONS ===== */
+function Notifs({user,people,onBack,onViewProposal,onViewActivity,profile}){const[notifs,setNotifs]=useState([]);
+useEffect(()=>{const r=db.ref(P(`notifications/${user.uid}`));r.on("value",s=>{const d=s.val();setNotifs(d?Object.entries(d).map(([k,v])=>({...v,key:k})).sort((a,b)=>(b.time||0)-(a.time||0)):[])}); return()=>r.off()},[user.uid]);
+const markRead=k=>{db.ref(P(`notifications/${user.uid}/${k}/read`)).set(true);
+// Record seenBy on proposal if read receipts are on
+const n=notifs.find(x=>x.key===k);
+if(n&&(n.type==="proposal"||n.type==="response")&&n.refId&&profile?.showReadReceipts!==false){
+db.ref(P("proposals")).once("value",s=>{const all=s.val()?Object.values(s.val()):[];const idx=all.findIndex(p=>p.id===n.refId);
+if(idx!==-1){const updated=JSON.parse(JSON.stringify(all));if(!updated[idx].seenBy)updated[idx].seenBy={};
+updated[idx].seenBy[profile.name]=Date.now();db.ref(P("proposals")).set(updated)}})}};
+const clearAll=()=>db.ref(P(`notifications/${user.uid}`)).remove();
+return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fafc",minHeight:"100vh",color:"#1e293b",padding:"24px 16px"}}><div style={{maxWidth:500,margin:"0 auto"}}>
+<button onClick={onBack} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:14,fontWeight:600,marginBottom:20}}>‹ back</button>
+<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:24}}>
+<h1 style={{fontFamily:"'Nunito',sans-serif",fontSize:28,fontWeight:800,background:"linear-gradient(135deg,#f59e0b,#e040fb)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>notifications</h1>
+{notifs.length>0&&<button onClick={clearAll} style={{background:"none",border:"1px solid #e2e8f0",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600,color:"#64748b",cursor:"pointer"}}>clear all</button>}</div>
+{notifs.length===0?<p style={{color:"#94a3b8",fontSize:14,fontStyle:"italic"}}>no notifications</p>:
+notifs.map(n=>{const c=people.find(p=>p.name===n.from)?.color||"#e040fb";
+const isProposal=n.type==="proposal"||n.type==="response";
+const isActivity=n.type==="activity";
+const hasAction=(isProposal||isActivity)&&n.refId;
+const handleClick=()=>{markRead(n.key);if(isProposal&&n.refId)onViewProposal(n.refId);else if(isActivity&&n.refId)onViewActivity(n.refId)};
+return(<div key={n.key} onClick={hasAction?handleClick:()=>!n.read&&markRead(n.key)}
+style={{padding:"14px 16px",marginBottom:8,background:n.read?"#fff":c+"08",borderRadius:12,borderLeft:`4px solid ${n.read?"#e2e8f0":c}`,cursor:"pointer"}}>
+<div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}><span style={{fontWeight:700,fontSize:14,color:n.read?"#94a3b8":c}}>{n.from}</span>
+<span style={{fontSize:11,color:"#94a3b8"}}>{n.time?new Date(n.time).toLocaleDateString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):""}</span></div>
+<div style={{fontSize:13,color:n.read?"#94a3b8":"#475569",marginTop:4}}>{n.message}</div>
+{hasAction&&<div style={{fontSize:11,color:c,marginTop:6,fontWeight:600}}>tap to view & respond →</div>}
+{!hasAction&&!n.read&&<div style={{fontSize:11,color:"#94a3b8",marginTop:6}}>tap to mark read</div>}
+</div>)})}</div></div>)}
+
+/* ===== MAIN APP ===== */
+function Main({user,profile,allUsers,onSettings,onNotifs,onFAQ,onMap,openProposalId,clearOpenProposal,openActId,clearOpenAct}){
+const today=new Date();
+const[cM,setCM]=useState(today.getMonth());const[cY,setCY]=useState(today.getFullYear());
+const[bt,setBT]=useState({});const[people,setPpl]=useState([]);
+const[mo,setMO]=useState(false);const[sDay,setSD]=useState(null);const[sp,setSP]=useState(null);
+const[ts,setTS]=useState("09:00");const[te,setTE]=useState("17:00");const[ee,setEE]=useState(null);
+const[alo,setALO]=useState(true);const[hw,setHW]=useState([]);
+const[pDay,setPD]=useState("");const[pts2,setPTS]=useState("14:00");const[pte,setPTE]=useState("17:00");
+const[pn,setPN]=useState("");const[pst,setPST]=useState([]);const[ploc,setPLoc]=useState("");const[props,setProps]=useState([]);
+const[acts,setActs]=useState([]);const[amo,setAMO]=useState(false);const[ad,setAD]=useState(null);
+const[ats,setATS]=useState("10:00");const[ate,setATE]=useState("14:00");const[adesc,setADesc]=useState("");
+const[aloc,setALoc]=useState("");
+const[ai,setAI]=useState([]);const[actP,setActP]=useState("");
+const[cd,setCD]=useState(null);const[menuOpen,setMenu]=useState(false);const mRef=useRef(null);
+const[tp,setTP]=useState([]);const isAdmin=(profile?.email||"").toLowerCase()===ADMIN.toLowerCase();const[aaa,setAAA]=useState("");
+const[sandbox,setSandbox]=useState(false);
+const pfx=sandbox?"sandbox/":"";
+const dbR=path=>db.ref(pfx+path);
+const[nn,setNN]=useState("");const[nc,setNC]=useState(CO[0].v);const[uc,setUC]=useState(0);
+// Proposal response modal
+const[respModal,setRM]=useState(null);
+const[respMode,setRespMode]=useState(null);
+// Activity detail modal
+const[viewAct,setVA]=useState(null);
+const[actRespNote,setARN]=useState("");
+const[actRespMode,setARM]=useState(null);
+const[actRcDate,setActRcDate]=useState("");const[actRcTS,setActRcTS]=useState("14:00");const[actRcTE,setActRcTE]=useState("17:00");
+const[respNote,setRN]=useState("");
+const[rcDate,setRCDate]=useState("");const[rcTS,setRCTS]=useState("14:00");const[rcTE,setRCTE]=useState("17:00");
+
+const myName=isAdmin?(aaa||profile?.name||""):(profile?.name||"");
+const myColor=isAdmin?(people.find(p=>p.name===myName)?.color||profile?.color||"#e040fb"):(profile?.color||"#e040fb");
+const canEdit=isAdmin;
+
+useEffect(()=>{const r=db.ref(P(`notifications/${user.uid}`));r.on("value",s=>{const d=s.val()||{};setUC(Object.values(d).filter(n=>!n.read).length)});return()=>r.off()},[user.uid]);
+useEffect(()=>{const h=e=>{if(mRef.current&&!mRef.current.contains(e.target))setMenu(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
+useEffect(()=>{const a=db.ref(P("busyTimes")),b=db.ref(P("proposals")),c=db.ref(P("activities")),d=db.ref(P("testPeople"));
+a.on("value",s=>setBT(s.val()||{}));b.on("value",s=>setProps(s.val()?Object.values(s.val()):[]));
+c.on("value",s=>setActs(s.val()?Object.values(s.val()):[]));d.on("value",s=>setTP(s.val()?Object.values(s.val()):[]));
+return()=>{a.off();b.off();c.off();d.off()}},[]);
+// Keep viewAct in sync
+useEffect(()=>{if(viewAct){const fresh=acts.find(a=>a.id===viewAct.id);if(fresh)setVA(fresh)}},[acts]);
+// Auto-open activity from notification
+useEffect(()=>{if(openActId&&acts.length>0){const a=acts.find(x=>x.id===openActId);if(a){setVA(a);setARM(null);setARN("");setActRcDate("");setActRcTS("14:00");setActRcTE("17:00");if(clearOpenAct)clearOpenAct()}}},[openActId,acts]);
+// Record seenBy on a proposal if read receipts enabled
+const recordSeen=(prId)=>{if(profile?.showReadReceipts===false)return;
+const idx=props.findIndex(p=>p.id===prId);if(idx===-1)return;
+const updated=JSON.parse(JSON.stringify(props));if(!updated[idx].seenBy)updated[idx].seenBy={};
+if(!updated[idx].seenBy[myName]){updated[idx].seenBy[myName]=Date.now();db.ref(P("proposals")).set(updated)}};
+// Auto-open proposal from notification
+useEffect(()=>{if(openProposalId&&props.length>0){const pr=props.find(p=>p.id===openProposalId);if(pr){setRM(pr);setRN("");setRCDate("");setRCTS("14:00");setRCTE("17:00");setRespMode(null);recordSeen(pr.id);if(clearOpenProposal)clearOpenProposal()}}},[openProposalId,props]);
+useEffect(()=>{const ap=Object.values(allUsers).filter(u=>u.name&&u.color).map(u=>({name:u.name,color:u.color,email:u.email}));const m=[...ap];tp.forEach(t=>{if(!m.find(p=>p.name===t.name))m.push(t)});
+// Hide admin from non-admin users
+const adminProfile=Object.values(allUsers).find(u=>(u.email||"").toLowerCase()===ADMIN.toLowerCase());
+const filtered=isAdmin?m:m.filter(p=>!adminProfile||p.name!==adminProfile.name);
+setPpl(filtered)},[allUsers,tp,isAdmin]);
+
+const openBusy=d=>{setSD(d);setTS("09:00");setTE("17:00");setEE(null);setSP(null);setMO(true)};
+const editBusy=(pn2,dk,ei)=>{if(!canEdit&&pn2!==myName)return;const e=bt[pn2]?.[dk]?.[ei];if(!e)return;setSD(parseInt(dk.split("-")[2]));setTS(e.start);setTE(e.end);setSP(pn2);setEE({personName:pn2,dateKey:dk,entryIndex:ei});setMO(true)};
+const saveBusy=()=>{if(!sDay)return;const an=isAdmin&&sp?sp:myName;if(!an)return;const dk=fD(cY,cM,sDay),nb=JSON.parse(JSON.stringify(bt));
+if(ee){const{personName,dateKey:d2,entryIndex}=ee;if(nb[personName]?.[d2])nb[personName][d2][entryIndex]={start:ts,end:te}}
+else{if(!nb[an])nb[an]={};if(!nb[an][dk])nb[an][dk]=[];nb[an][dk].push({start:ts,end:te})}
+db.ref(P("busyTimes")).set(nb);setMO(false)};
+const delBusy=()=>{if(!ee)return;const{personName,dateKey,entryIndex}=ee;if(!canEdit&&personName!==myName)return;
+const nb=JSON.parse(JSON.stringify(bt));if(nb[personName]?.[dateKey]){nb[personName][dateKey].splice(entryIndex,1);
+if(!nb[personName][dateKey].length)delete nb[personName][dateKey];if(!Object.keys(nb[personName]).length)delete nb[personName]}
+db.ref(P("busyTimes")).set(Object.keys(nb).length?nb:null);setMO(false)};
+
+const openAct=d=>{setAD(d);setATS("10:00");setATE("14:00");setADesc("");setALoc("");setAI([]);setActP("");setAMO(true)};
+const saveAct=async()=>{if(!ad||!adesc.trim())return;const an=isAdmin&&actP?actP:myName;if(!an)return;const dk=fD(cY,cM,ad);
+const inv=ai.length?ai:people.filter(p=>p.name!==an).map(p=>p.name);
+const loc=aloc.trim()?await geocode(aloc.trim()):null;
+const na={person:an,date:dk,timeStart:ats,timeEnd:ate,description:adesc.trim(),location:aloc.trim()||"",coords:loc,invite:inv,id:Date.now(),uid:user.uid};
+db.ref(P("activities")).set([...acts,na]);sendNotif(db,an,inv,`${an} is doing "${adesc.trim()}"${aloc.trim()?" at "+aloc.trim():""} and invited you!`,allUsers,"activity",na.id);setAMO(false)};
+const delAct=id=>{const a=acts.find(x=>x.id===id);if(!canEdit&&a?.uid&&a.uid!==user.uid)return;const u=acts.filter(x=>x.id!==id);db.ref(P("activities")).set(u.length?u:null)};
+const respondAct=(actId,status,note,sugDate,sugTS,sugTE)=>{
+const idx=acts.findIndex(a=>a.id===actId);if(idx===-1)return;
+const updated=JSON.parse(JSON.stringify(acts));
+if(!updated[idx].responses)updated[idx].responses={};
+updated[idx].responses[myName]={status,note:note||"",hidden:false,
+...(status==="raincheck"?{suggestedDate:sugDate||"",suggestedTimeStart:sugTS||"",suggestedTimeEnd:sugTE||""}:{})};
+db.ref(P("activities")).set(updated);
+const sl=status==="accepted"?"yes we can!":status==="declined"?"womp womp":"raincheck?";
+sendNotif(db,myName,[updated[idx].person],`${myName} responded "${sl}" to "${updated[idx].description}"${note?` — "${note}"`:""}${status==="raincheck"&&sugDate?` → ${sugDate}`:""}`,allUsers,"activity",actId);
+setVA(updated[idx])};
+const hideActFromCal=(actId)=>{
+const idx=acts.findIndex(a=>a.id===actId);if(idx===-1)return;
+const updated=JSON.parse(JSON.stringify(acts));
+if(updated[idx].responses?.[myName])updated[idx].responses[myName].hidden=true;
+db.ref(P("activities")).set(updated)};
+
+const submitProp=async()=>{if(!pDay)return;const to=pst.length?pst:people.filter(p=>p.name!==myName).map(p=>p.name);
+// Build initial responses object — everyone starts as pending
+const resp={};to.forEach(n=>{resp[n]={status:"pending",note:"",hidden:false}});
+const loc=ploc.trim()?await geocode(ploc.trim()):null;
+const np={person:myName,date:pDay,timeStart:pts2,timeEnd:pte,notes:pn,location:ploc.trim()||"",coords:loc,sendTo:to,responses:resp,id:Date.now(),uid:user.uid};
+db.ref(P("proposals")).set([...props,np]);
+sendNotif(db,myName,to,`${myName} proposed: ${pn||"let's kick it!"}${ploc.trim()?" at "+ploc.trim():""} on ${pDay}`,allUsers,"proposal",np.id);
+setPN("");setPST([]);setPLoc("")};
+const delProp=id=>{const p=props.find(x=>x.id===id);if(!canEdit&&p?.uid&&p.uid!==user.uid)return;const u=props.filter(x=>x.id!==id);db.ref(P("proposals")).set(u.length?u:null)};
+
+// Respond to a proposal
+const respondProp=(propId,status,note,sugDate,sugTS,sugTE)=>{
+const idx=props.findIndex(p=>p.id===propId);if(idx===-1)return;
+const updated=JSON.parse(JSON.stringify(props));
+if(!updated[idx].responses)updated[idx].responses={};
+updated[idx].responses[myName]={status,note:note||"",hidden:false,
+  ...(status==="raincheck"?{suggestedDate:sugDate||"",suggestedTimeStart:sugTS||"",suggestedTimeEnd:sugTE||""}:{})};
+db.ref(P("proposals")).set(updated);
+const sender=updated[idx].person;
+const statusLabel=status==="accepted"?"yes we can!":status==="declined"?"womp womp":"raincheck?";
+sendNotif(db,myName,[sender],`${myName} responded "${statusLabel}" to your proposal${note?`: "${note}"`:""}${status==="raincheck"&&sugDate?` — suggested ${sugDate}`:""} `,allUsers,"response",propId);
+setRM(null);setRN("")};
+
+const hidePropFromCal=(propId)=>{
+const idx=props.findIndex(p=>p.id===propId);if(idx===-1)return;
+const updated=JSON.parse(JSON.stringify(props));
+if(updated[idx].responses?.[myName])updated[idx].responses[myName].hidden=true;
+db.ref(P("proposals")).set(updated)};
+
+const adminAdd=()=>{if(!isAdmin)return;const t=nn.trim();if(!t||people.find(p=>p.name===t))return;
+db.ref(P("testPeople")).set([...tp,{name:t,color:nc}]);setNN("");const nx=CO.find(c=>![...people.map(p=>p.color),nc].includes(c.v));if(nx)setNC(nx.v)};
+const adminDel=name=>{if(!isAdmin)return;db.ref(P("testPeople")).set(tp.filter(p=>p.name!==name).length?tp.filter(p=>p.name!==name):null);
+const nb={...bt};delete nb[name];db.ref(P("busyTimes")).set(Object.keys(nb).length?nb:null);
+db.ref(P("activities")).set(acts.filter(a=>a.person!==name).length?acts.filter(a=>a.person!==name):null);if(aaa===name)setAAA("")};
+
+const dIM=gDIM(cY,cM),fDay=gFDOM(cY,cM);
+const cDays=useMemo(()=>{const d=[];for(let i=0;i<fDay;i++)d.push(null);for(let i=1;i<=dIM;i++)d.push(i);return d},[fDay,dIM]);
+
+const getAS=useCallback(dk=>{if(people.length<2||!myName)return[];const tgt=hw.length?people.filter(p=>hw.includes(p.name)):people.filter(p=>p.name!==myName);
+if(!tgt.length)return[];const myE=bt[myName]?.[dk]||[];if(!myE.length)return[];
+const twE=tgt.filter(p=>(bt[p.name]?.[dk]||[]).length>0);if(!twE.length)return[];
+const pts=new Set([DS,DE]);[myName,...twE.map(p=>p.name)].forEach(n=>(bt[n]?.[dk]||[]).forEach(e=>{const s=pT(e.start),en=pT(e.end);if(s>DS&&s<DE)pts.add(s);if(en>DS&&en<DE)pts.add(en)}));
+const sorted=[...pts].sort((a,b)=>a-b);const isA=(n,mid)=>(bt[n]?.[dk]||[]).some(e=>{const s=pT(e.start),en=pT(e.end);return s<=mid&&en>mid});
+const fi=[];for(let i=0;i<sorted.length-1;i++){const st=sorted[i],en=sorted[i+1],mid=(st+en)/2;if(!isA(myName,mid))continue;if(twE.some(p=>isA(p.name,mid)))fi.push({start:st,end:en})}
+const mg=[];for(const iv of fi){if(mg.length&&mg[mg.length-1].end===iv.start)mg[mg.length-1].end=iv.end;else mg.push({...iv})}return mg},[people,bt,myName,hw]);
+
+const hDays=useMemo(()=>{if(!people.length)return{};const r={};for(let d=1;d<=dIM;d++){const dk=fD(cY,cM,d),sl=getAS(dk),th=sl.reduce((s,x)=>s+(x.end-x.start),0);if(th>=3)r[d]=sl}return r},[people,bt,cM,cY,dIM,getAS,myName,hw]);
+const prevM=()=>{if(cM===0){setCM(11);setCY(cY-1)}else setCM(cM-1)};
+const nextM=()=>{if(cM===11){setCM(0);setCY(cY+1)}else setCM(cM+1)};
+const selDL=sDay?`${MN[cM]} ${sDay}, ${cY}`:"";const actDL=ad?`${MN[cM]} ${ad}, ${cY}`:"";
+const upHE=Object.entries(hDays).filter(([d])=>new Date(cY,cM,parseInt(d))>=new Date(today.getFullYear(),today.getMonth(),today.getDate()));
+const hDO=Object.keys(hDays).map(d=>({value:fD(cY,cM,parseInt(d)),label:`${new Date(cY,cM,parseInt(d)).toLocaleDateString("en-US",{weekday:"short"})}, ${MN[cM]} ${d}`}));
+const gAFD=day=>{const dk=fD(cY,cM,day);return acts.filter(a=>{
+if(a.date!==dk)return false;
+if(a.person===myName)return true;
+const r=a.responses?.[myName];
+if(r?.hidden)return false;
+return true;
+})};
+// Get proposals that show on a given day for this user
+const gPFD=day=>{const dk=fD(cY,cM,day);return props.filter(p=>{
+if(p.date!==dk)return false;
+if(p.person===myName)return true;// I sent it
+const r=p.responses?.[myName];if(!r)return p.sendTo?.includes(myName);// sent to me, no response yet
+if(r.hidden)return false;// I chose to hide it
+return true;// show it
+})};
+const getMyStatus=(pr)=>{if(pr.person===myName)return"sent";return pr.responses?.[myName]?.status||"pending"};
+const getStatusColor=(st)=>st==="accepted"?"#22c55e":st==="declined"?"#94a3b8":st==="raincheck"?"#f59e0b":"#e040fb";
+
+const exportCal=()=>{const events=[];
+upHE.forEach(([day,slots])=>{const dk=fD(cY,cM,parseInt(day));slots.forEach(s=>{const sh=Math.floor(s.start),sm=Math.round((s.start-sh)*60),eh=Math.floor(s.end),em=Math.round((s.end-eh)*60);
+events.push({date:dk,timeStart:`${String(sh).padStart(2,"0")}:${String(sm).padStart(2,"0")}`,timeEnd:`${String(eh).padStart(2,"0")}:${String(em).padStart(2,"0")}`,title:"can we kick it? — free",description:"overlap with crew"})})});
+acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);return new Date(y,m-1,d)>=today}).forEach(a=>{events.push({date:a.date,timeStart:a.timeStart,timeEnd:a.timeEnd,title:`★ ${a.description}`,description:`${a.person}'s activity`})});
+// Export confirmed proposals
+props.filter(p=>{const r=p.responses?.[myName];return r?.status==="accepted"||p.person===myName}).forEach(p=>{events.push({date:p.date,timeStart:p.timeStart,timeEnd:p.timeEnd,title:`hangout: ${p.notes||"kick it"}`,description:`proposed by ${p.person}`})});
+if(!events.length){alert("no events to export");return}dlICS(events,"can-we-kick-it.ics")};
+
+const iS={background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:8,padding:"10px 14px",color:"#1e293b",fontSize:14,outline:"none",width:"100%",boxSizing:"border-box"};
+const bP={background:"#e040fb",color:"#fff",border:"none",borderRadius:10,padding:"10px 22px",fontSize:14,fontWeight:600,cursor:"pointer",letterSpacing:0.3};
+const sS={background:"#fff",borderRadius:16,border:"1px solid #e2e8f0",padding:22,marginBottom:24,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"};
+
+return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fafc",minHeight:"100vh",color:"#1e293b",padding:"24px 16px"}}><div style={{maxWidth:860,margin:"0 auto"}}>
+
+{/* Sandbox banner */}
+{SANDBOX&&<div style={{background:"#f59e0b",color:"#fff",textAlign:"center",padding:"6px 0",fontSize:12,fontWeight:700,borderRadius:8,marginBottom:12,letterSpacing:0.5}}>⚠ SANDBOX MODE — data is isolated from production</div>}
+
+{/* Top bar */}
+<div style={{display:"flex",alignItems:"center",justifyContent:"center",marginBottom:24,position:"relative"}}>
+<img src="can_we_kick_it_transp.png" alt="logo" onClick={()=>window.scrollTo({top:0,behavior:"smooth"})} style={{height:60,objectFit:"contain",cursor:"pointer"}}/>
+<div ref={mRef} style={{position:"absolute",right:0,top:"50%",transform:"translateY(-50%)"}}>
+<button onClick={()=>setMenu(!menuOpen)} style={{background:"none",border:"none",cursor:"pointer",padding:8,display:"flex",flexDirection:"column",gap:4,position:"relative"}}>
+<span style={{width:24,height:2.5,background:"#475569",borderRadius:2,display:"block"}}/><span style={{width:24,height:2.5,background:"#475569",borderRadius:2,display:"block"}}/><span style={{width:24,height:2.5,background:"#475569",borderRadius:2,display:"block"}}/>
+{uc>0&&<div style={{position:"absolute",top:2,right:2,width:16,height:16,borderRadius:"50%",background:"#ef4444",color:"#fff",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{uc}</div>}</button>
+{menuOpen&&(<div style={{position:"absolute",top:"100%",right:0,background:"#fff",border:"1px solid #e2e8f0",borderRadius:12,boxShadow:"0 8px 30px rgba(0,0,0,0.12)",overflow:"hidden",minWidth:200,zIndex:100,marginTop:4}}>
+<div style={{padding:"12px 16px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:8}}><div style={{width:10,height:10,borderRadius:"50%",background:myColor}}/><span style={{fontSize:14,fontWeight:600}}>{myName}</span></div>
+<button onClick={()=>{setMenu(false);onNotifs()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,display:"flex",alignItems:"center",justifyContent:"space-between"}}>notifications{uc>0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:10,padding:"2px 8px",fontSize:11,fontWeight:700}}>{uc}</span>}</button>
+<button onClick={()=>{setMenu(false);exportCal()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>export to calendar</button>
+<button onClick={()=>{setMenu(false);onMap()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>crew map</button>
+<button onClick={()=>{setMenu(false);onSettings()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>settings</button>
+<button onClick={()=>{setMenu(false);onFAQ()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>FAQ</button>
+<button onClick={()=>{setMenu(false);au.signOut()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#ef4444",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>sign out</button></div>)}</div></div>
+
+{/* Crew */}
+<div style={{...sS,padding:"14px 22px"}}><label style={{fontSize:12,fontWeight:600,color:"#94a3b8",marginBottom:8,display:"block"}}>the crew</label>
+<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{people.map(p=>(<div key={p.name} style={{display:"flex",alignItems:"center",gap:6,background:"#f8fafc",borderRadius:20,padding:"5px 12px",border:`2px solid ${p.color}`}}><div style={{width:8,height:8,borderRadius:"50%",background:p.color}}/><span style={{fontSize:13,fontWeight:600}}>{p.name}</span></div>))}</div></div>
+
+{/* Admin */}
+{isAdmin&&(<div style={{...sS,padding:"16px 22px",borderLeft:"4px solid #e040fb"}}><label style={{fontSize:12,fontWeight:700,color:"#e040fb",marginBottom:10,display:"block",textTransform:"uppercase",letterSpacing:0.5}}>admin</label>
+<div style={{marginBottom:14}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>acting as:</label>
+<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{people.map(p=>(<button key={p.name} onClick={()=>setAAA(p.name)} style={{padding:"6px 14px",borderRadius:8,fontSize:13,fontWeight:600,background:myName===p.name?p.color+"18":"#f8fafc",border:myName===p.name?`2px solid ${p.color}`:"2px solid #e2e8f0",color:myName===p.name?p.color:"#64748b",cursor:"pointer"}}>{p.name}</button>))}</div></div>
+<div><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>add person:</label>
+<div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}><input value={nn} onChange={e=>setNN(e.target.value)} onKeyDown={e=>e.key==="Enter"&&adminAdd()} placeholder="name..." style={{...iS,width:140,flex:"none"}}/>
+<div style={{display:"flex",gap:4}}>{CO.map(c=>{const tk=people.map(p=>p.color).includes(c.v);return<button key={c.v} onClick={()=>!tk&&setNC(c.v)} disabled={tk} style={{width:22,height:22,borderRadius:"50%",border:nc===c.v?"2.5px solid #1e293b":"2px solid transparent",background:c.v,cursor:tk?"not-allowed":"pointer",opacity:tk?0.25:1}}/>})}</div>
+<button onClick={adminAdd} style={{...bP,padding:"8px 16px",fontSize:12}}>+ add</button></div>
+{tp.length>0&&<div style={{marginTop:12}}><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{tp.map(p=>(<div key={p.name} style={{display:"flex",alignItems:"center",gap:6,background:"#f8fafc",borderRadius:20,padding:"5px 12px",border:`2px solid ${p.color}`}}><div style={{width:8,height:8,borderRadius:"50%",background:p.color}}/><span style={{fontSize:12,fontWeight:600}}>{p.name}</span>
+<button onClick={()=>adminDel(p.name)} style={{background:"none",border:"none",color:"#ef4444",cursor:"pointer",fontSize:14,padding:0,lineHeight:1,fontWeight:700}}>×</button></div>))}</div></div>}
+</div></div>)}
+
+{/* Month */}
+<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+<button onClick={prevM} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,color:"#1e293b",padding:"8px 16px",cursor:"pointer",fontSize:18}}>‹</button>
+<h2 style={{fontSize:20,fontWeight:700,margin:0}}>{MN[cM]} {cY}</h2>
+<button onClick={nextM} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,color:"#1e293b",padding:"8px 16px",cursor:"pointer",fontSize:18}}>›</button></div>
+<p style={{color:"#94a3b8",fontSize:13,textAlign:"center",marginBottom:16}}>add your available times, find when everyone's free</p>
+
+{/* Calendar */}
+<div style={{...sS,padding:16}}>
+<div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:2}}>{DOW.map(d=><div key={d} style={{textAlign:"center",fontSize:11,fontWeight:700,color:"#94a3b8",padding:"8px 0",textTransform:"uppercase",letterSpacing:1}}>{d}</div>)}</div>
+<div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
+{cDays.map((day,i)=>{if(day===null)return<div key={`e-${i}`}/>;
+const isT=day===today.getDate()&&cM===today.getMonth()&&cY===today.getFullYear();
+const dA=gAFD(day),hA=dA.length>0,aC=hA?(people.find(p=>p.name===dA[0].person)?.color||"#e040fb"):null;
+const dP=gPFD(day);
+return(<div key={day} onClick={()=>setCD(day)} style={{minHeight:72,borderRadius:10,padding:"6px 8px",background:isT?"rgba(224,64,251,0.06)":"#fff",
+border:hA?`2px solid ${aC}`:isT?"1.5px solid rgba(224,64,251,0.35)":"1px solid #f1f5f9",cursor:"pointer",transition:"background 0.15s"}}
+onMouseEnter={e=>e.currentTarget.style.background="#f1f5f9"} onMouseLeave={e=>{e.currentTarget.style.background=isT?"rgba(224,64,251,0.06)":"#fff"}}>
+<div style={{fontSize:13,fontWeight:isT?700:500,color:isT?"#e040fb":"#475569"}}>{day}</div>
+<div style={{display:"flex",flexDirection:"column",gap:2,marginTop:3}}>
+{people.map(p=>{const dk=fD(cY,cM,day);return(bt[p.name]?.[dk]||[]).map((en,idx)=>(
+<div key={`${p.name}-${idx}`} onClick={e=>{e.stopPropagation();editBusy(p.name,dk,idx)}}
+style={{fontSize:9,background:p.color+"20",color:p.color,borderRadius:4,padding:"2px 4px",fontWeight:600,borderLeft:`3px solid ${p.color}`,cursor:p.name===myName||canEdit?"pointer":"default",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+{p.name.slice(0,6)} {en.start}</div>))})}
+{dA.map(a=>{const c=people.find(p=>p.name===a.person)?.color||"#e040fb";const myActSt=a.responses?.[myName]?.status;
+const chipC=myActSt==="accepted"?"#22c55e":myActSt==="declined"?"#94a3b8":myActSt==="raincheck"?"#f59e0b":c;
+return(
+<div key={a.id} onClick={e=>{e.stopPropagation();setVA(a);setARM(null);setARN("");setActRcDate("");setActRcTS("14:00");setActRcTE("17:00")}} style={{fontSize:9,background:chipC+"20",color:chipC,borderRadius:4,padding:"2px 4px",fontWeight:600,borderLeft:`3px solid ${chipC}`,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{myActSt==="accepted"?"✓":myActSt==="declined"?"✗":myActSt==="raincheck"?"⏳":"★"} {a.description.slice(0,12)}</div>)})}
+{/* Proposals on calendar */}
+{dP.map(pr=>{const sC=people.find(p=>p.name===pr.person)?.color||"#e040fb";const mySt=getMyStatus(pr);const stC=getStatusColor(mySt);
+return(<div key={pr.id} onClick={e=>{e.stopPropagation();setRM(pr);setRN("");setRCDate("");setRCTS("14:00");setRCTE("17:00");setRespMode(null);recordSeen(pr.id)}}
+style={{fontSize:9,background:mySt==="accepted"?"#22c55e20":mySt==="declined"?"#94a3b820":sC+"15",
+color:mySt==="accepted"?"#22c55e":mySt==="declined"?"#94a3b8":sC,
+borderRadius:4,padding:"2px 4px",fontWeight:600,borderLeft:`3px dashed ${stC}`,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+{mySt==="sent"?"📤":mySt==="accepted"?"✓":mySt==="declined"?"✗":mySt==="raincheck"?"⏳":"📩"} {(pr.notes||"hangout").slice(0,10)}</div>)})}
+</div></div>)})}
+</div></div>
+
+{/* What's Happening */}
+<div style={sS}><h2 style={{fontSize:20,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",color:"#f59e0b"}}>what's happening</h2>
+<p style={{color:"#94a3b8",fontSize:12,margin:"0 0 14px"}}>activities your crew has planned</p>
+{(()=>{const ua=acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);return new Date(y,m-1,d)>=today});
+return!ua.length?<p style={{color:"#94a3b8",fontSize:14,fontStyle:"italic"}}>no upcoming activities</p>:
+ua.map(a=>{const c=people.find(p=>p.name===a.person)?.color||"#e040fb";const[y,m,d]=a.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
+return(<div key={a.id} onClick={()=>{setVA(a);setARM(null);setARN("");setActRcDate("");setActRcTS("14:00");setActRcTE("17:00")}} style={{padding:"14px 16px",marginBottom:8,background:c+"08",borderRadius:12,borderLeft:`4px solid ${c}`,position:"relative",cursor:"pointer"}}>
+{(canEdit||!a.uid||a.uid===user.uid)&&<button onClick={e=>{e.stopPropagation();delAct(a.id)}} style={{position:"absolute",top:10,right:12,background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>}
+<div style={{fontWeight:700,fontSize:14,color:c}}>{a.person}</div>
+<div style={{fontSize:13,color:"#475569",marginTop:2}}>{dl} · {fTD(pT(a.timeStart))} – {fTD(pT(a.timeEnd))}</div>
+<div style={{fontSize:13,color:"#1e293b",marginTop:4,fontWeight:600}}>★ {a.description}</div>
+{a.location&&<div style={{fontSize:12,color:"#64748b",marginTop:2}}>📍 {a.location}</div>}
+{a.invite&&<div style={{fontSize:12,color:"#94a3b8",marginTop:4}}>invited: {Array.isArray(a.invite)?a.invite.join(", "):a.invite}</div>}</div>)})})()}</div>
+
+{/* Can We Kick It */}
+<div style={sS}><h2 style={{fontSize:20,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",color:"#4ECDC4"}}>can we kick it?</h2>
+<p style={{color:"#94a3b8",fontSize:12,margin:"0 0 18px"}}>your overlap with at least 1 other person (3+ hrs)</p>
+{people.length<2?<p style={{color:"#94a3b8",fontSize:14,fontStyle:"italic"}}>waiting for friends</p>:(<>
+<div style={{marginBottom:18}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>who do you want to hang with?</label>
+<div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>{(()=>{const others=people.filter(p=>p.name!==myName);const allSel=others.length>0&&others.every(p=>hw.includes(p.name));
+return<><button onClick={()=>setHW(allSel?[]:others.map(p=>p.name))} style={{padding:"7px 16px",borderRadius:8,fontSize:13,fontWeight:700,background:allSel?"#e040fb18":"#f8fafc",border:allSel?"2px solid #e040fb":"2px solid #e2e8f0",color:allSel?"#e040fb":"#64748b",cursor:"pointer"}}>all</button>
+{others.map(p=>{const s=hw.includes(p.name);return(<button key={p.name} onClick={()=>setHW(s?hw.filter(n=>n!==p.name):[...hw,p.name])} style={{padding:"7px 16px",borderRadius:8,fontSize:13,fontWeight:600,background:s?p.color+"18":"#f8fafc",border:s?`2px solid ${p.color}`:"2px solid #e2e8f0",color:s?p.color:"#64748b",cursor:"pointer"}}>{p.name}</button>)})}</>})()}</div>
+<p style={{fontSize:11,color:"#94a3b8",marginTop:6}}>{hw.length===0?"overlap with anyone":`overlap with ${hw.join(", ")}`}</p></div>
+<div style={{marginBottom:20}}><div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:2}}>{DOW.map(d=><div key={d} style={{textAlign:"center",fontSize:10,fontWeight:700,color:"#94a3b8",padding:"6px 0",textTransform:"uppercase",letterSpacing:1}}>{d}</div>)}</div>
+<div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>{cDays.map((day,i)=>{if(day===null)return<div key={`h-${i}`}/>;const isH=hDays[day]!=null;
+return(<div key={day} style={{height:40,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:isH?700:400,
+background:isH?"linear-gradient(135deg,#e040fb,#f472b6)":"#fff",color:isH?"#fff":"#cbd5e1",border:isH?"none":"1.5px solid #e040fb30",
+boxShadow:isH?"0 4px 15px rgba(224,64,251,0.25)":"none"}}>{day}</div>)})}</div></div>
+<button onClick={()=>setALO(!alo)} style={{display:"flex",alignItems:"center",gap:8,width:"100%",background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 16px",cursor:"pointer",marginBottom:alo?10:0,fontSize:14,fontWeight:600,color:"#475569"}}>
+<span style={{transform:alo?"rotate(90deg)":"rotate(0deg)",fontSize:12,display:"inline-block",transition:"transform 0.2s"}}>▶</span>available days & times<span style={{marginLeft:"auto",fontSize:12,fontWeight:400,color:"#94a3b8"}}>{upHE.length} day{upHE.length!==1?"s":""}</span></button>
+{alo&&(!upHE.length?<p style={{color:"#94a3b8",fontSize:14,fontStyle:"italic",padding:"4px 0"}}>no overlap this month</p>:
+<ul style={{listStyle:"none",padding:0,margin:0}}>{upHE.map(([day,slots])=>{const dn=new Date(cY,cM,parseInt(day)).toLocaleDateString("en-US",{weekday:"long"});const th=slots.reduce((s,x)=>s+(x.end-x.start),0);
+return(<li key={day} style={{padding:"12px 16px",marginBottom:6,background:"rgba(224,64,251,0.04)",borderRadius:10,borderLeft:"4px solid #e040fb"}}>
+<div style={{fontWeight:700,fontSize:14,marginBottom:4}}>{dn}, {MN[cM]} {day}<span style={{fontWeight:400,color:"#a78bfa",marginLeft:8,fontSize:12}}>{th.toFixed(1)} hrs</span></div>
+{slots.map((s,idx)=><div key={idx} style={{fontSize:13,color:"#64748b",marginLeft:4}}>• {fTD(s.start)} – {fTD(s.end)}</div>)}</li>)})}</ul>)}
+{upHE.length>0&&<button onClick={exportCal} style={{marginTop:12,padding:"10px 18px",borderRadius:10,fontSize:13,fontWeight:600,cursor:"pointer",background:"#f8fafc",border:"1px solid #e2e8f0",color:"#475569"}}>export to calendar (.ics)</button>}
+</>)}</div>
+
+{/* Hangout Proposal */}
+<div style={sS}><h2 style={{fontSize:20,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",background:"linear-gradient(135deg,#60a5fa,#4ecdc4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>hangout proposal</h2>
+<p style={{color:"#94a3b8",fontSize:12,margin:"0 0 18px"}}>suggest a day, time, and what you want to do</p>
+{people.length<2?<p style={{color:"#94a3b8",fontSize:14,fontStyle:"italic"}}>waiting for friends</p>:(<>
+<div style={{display:"flex",flexDirection:"column",gap:14}}>
+<div><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>who do you want to invite?</label>
+<div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>{(()=>{const others=people.filter(p=>p.name!==myName);const allSel=others.length>0&&others.every(p=>pst.includes(p.name));
+return<><button onClick={()=>setPST(allSel?[]:others.map(p=>p.name))} style={{padding:"7px 16px",borderRadius:8,fontSize:13,fontWeight:700,background:allSel?"#e040fb18":"#f8fafc",border:allSel?"2px solid #e040fb":"2px solid #e2e8f0",color:allSel?"#e040fb":"#64748b",cursor:"pointer"}}>all</button>
+{others.map(p=>{const s=pst.includes(p.name);return(<button key={p.name} onClick={()=>setPST(s?pst.filter(n=>n!==p.name):[...pst,p.name])} style={{padding:"7px 16px",borderRadius:8,fontSize:13,fontWeight:600,background:s?p.color+"18":"#f8fafc",border:s?`2px solid ${p.color}`:"2px solid #e2e8f0",color:s?p.color:"#64748b",cursor:"pointer"}}>{p.name}</button>)})}</>})()}</div>
+<p style={{fontSize:11,color:"#94a3b8",marginTop:6}}>{pst.length===0?"everyone":`to ${pst.join(", ")}`}</p></div>
+<div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+<div style={{flex:"2 1 180px"}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>pick a day</label>
+<select value={pDay} onChange={e=>setPD(e.target.value)} style={{...iS,cursor:"pointer"}}><option value="">select a day...</option>
+{hDO.length>0&&<optgroup label="Available days">{hDO.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</optgroup>}
+<optgroup label="All days">{Array.from({length:dIM},(_,i)=>{const d=i+1,dk=fD(cY,cM,d),dn=new Date(cY,cM,d).toLocaleDateString("en-US",{weekday:"short"});return<option key={dk} value={dk}>{dn}, {MN[cM]} {d}</option>})}</optgroup></select></div>
+<div style={{flex:"1 1 100px"}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>from</label><input type="time" value={pts2} onChange={e=>setPTS(e.target.value)} style={iS}/></div>
+<div style={{flex:"1 1 100px"}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>to</label><input type="time" value={pte} onChange={e=>setPTE(e.target.value)} style={iS}/></div></div>
+<div><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>notes</label>
+<textarea value={pn} onChange={e=>setPN(e.target.value)} placeholder="taco spot? movie night? park hangs?" rows={3} style={{...iS,resize:"vertical",fontFamily:"inherit"}}/></div>
+<div><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>where? <span style={{fontWeight:400,color:"#94a3b8"}}>(optional)</span></label>
+<input value={ploc} onChange={e=>setPLoc(e.target.value)} placeholder="address, park, restaurant..." style={iS}/></div>
+<button onClick={submitProp} disabled={!pDay} style={{...bP,alignSelf:"flex-start",background:!pDay?"#cbd5e1":"linear-gradient(135deg,#60a5fa,#4ecdc4)",cursor:!pDay?"not-allowed":"pointer"}}>can we kick it?</button></div>
+
+{/* Proposals list */}
+{props.length>0&&(<div style={{marginTop:20}}>
+<div style={{fontSize:13,fontWeight:700,color:"#64748b",marginBottom:10,textTransform:"uppercase",letterSpacing:0.5}}>proposals</div>
+{props.map(pr=>{const c=people.find(p=>p.name===pr.person)?.color||"#60a5fa";const[y,m,d]=pr.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
+const resp=pr.responses||{};const respEntries=Object.entries(resp);
+return(<div key={pr.id} style={{padding:"14px 16px",marginBottom:10,background:c+"08",borderRadius:12,borderLeft:`4px solid ${c}`,position:"relative"}}>
+{(canEdit||pr.uid===user.uid)&&<button onClick={()=>delProp(pr.id)} style={{position:"absolute",top:10,right:12,background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>}
+<div style={{fontWeight:700,fontSize:14,color:c}}>{pr.person}</div>
+{pr.sendTo&&<div style={{fontSize:12,color:"#94a3b8",marginTop:2}}>to: {Array.isArray(pr.sendTo)?pr.sendTo.join(", "):pr.sendTo}</div>}
+<div style={{fontSize:13,color:"#475569",marginTop:2}}>{dl} · {fTD(pT(pr.timeStart))} – {fTD(pT(pr.timeEnd))}</div>
+{pr.notes&&<div style={{fontSize:13,color:"#64748b",marginTop:4,fontStyle:"italic"}}>"{pr.notes}"</div>}
+{pr.location&&<div style={{fontSize:12,color:"#64748b",marginTop:2}}>📍 {pr.location}</div>}
+{/* Response summary */}
+{respEntries.length>0&&(<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:4}}>
+{respEntries.map(([name,r])=>{const pc=people.find(p=>p.name===name)?.color||"#94a3b8";
+return(<div key={name} style={{fontSize:12,display:"flex",alignItems:"center",gap:6}}>
+<div style={{width:8,height:8,borderRadius:"50%",background:SC[r.status]||"#94a3b8"}}/>
+<span style={{fontWeight:600,color:pc}}>{name}</span>
+<span style={{color:SC[r.status]||"#94a3b8"}}>{r.status==="accepted"?"yes we can!":r.status==="declined"?"womp womp":r.status==="raincheck"?"raincheck":"pending"}</span>
+{r.note&&<span style={{color:"#94a3b8",fontStyle:"italic"}}>— "{r.note}"</span>}
+{r.status==="raincheck"&&r.suggestedDate&&<span style={{color:"#f59e0b",fontSize:11}}> → {r.suggestedDate}</span>}
+</div>)})}</div>)}
+{/* Seen by */}
+{pr.seenBy&&Object.keys(pr.seenBy).length>0&&pr.person===myName&&(<div style={{marginTop:6,fontSize:11,color:"#94a3b8"}}>
+seen by: {Object.keys(pr.seenBy).map((n,i)=><span key={n} style={{color:people.find(p=>p.name===n)?.color||"#94a3b8",fontWeight:600}}>{i>0?", ":""}{n}</span>)}
+</div>)}
+{/* Show respond button if I'm a recipient and haven't responded */}
+{pr.person!==myName&&pr.sendTo?.includes(myName)&&(!resp[myName]||resp[myName].status==="pending")&&(
+<button onClick={()=>{setRM(pr);setRN("");setRCDate("");setRCTS("14:00");setRCTE("17:00");setRespMode(null);recordSeen(pr.id)}} style={{marginTop:10,padding:"8px 16px",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer",background:c,color:"#fff",border:"none"}}>respond</button>
+)}
+</div>)})}
+</div>)}
+</>)}</div>
+
+<div style={{textAlign:"center",padding:"16px 0",color:"#94a3b8",fontSize:12}}>click a day to add available times or activities</div>
+</div>
+
+{/* Day Choice */}
+<Modal isOpen={cd!==null} onClose={()=>setCD(null)}>
+<h3 style={{margin:"0 0 4px",fontSize:18,fontWeight:700}}>{cd?`${MN[cM]} ${cd}, ${cY}`:""}</h3>
+<p style={{color:"#64748b",fontSize:14,margin:"0 0 20px"}}>what would you like to do?</p>
+<div style={{display:"flex",flexDirection:"column",gap:10}}>
+<button onClick={()=>{const d=cd;setCD(null);openBusy(d)}} style={{padding:"14px 20px",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",background:"#e040fb",color:"#fff",border:"none",textAlign:"left"}}>add available time</button>
+<button onClick={()=>{const d=cd;setCD(null);openAct(d)}} style={{padding:"14px 20px",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",background:myColor,color:"#fff",border:"none",textAlign:"left"}}>add my activity</button></div></Modal>
+
+{/* Available Time Modal */}
+<Modal isOpen={mo} onClose={()=>setMO(false)}>
+<h3 style={{margin:"0 0 4px",fontSize:18,fontWeight:700}}>{ee?"edit available time":"add available time"}</h3>
+<p style={{color:"#64748b",fontSize:14,margin:"0 0 20px"}}>{selDL}</p>
+{isAdmin&&!ee?(<div style={{marginBottom:16}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>adding for:</label>
+<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{people.map(p=>(<button key={p.name} onClick={()=>setSP(p.name)} style={{padding:"6px 14px",borderRadius:8,fontSize:13,fontWeight:600,background:sp===p.name?p.color+"18":"#f8fafc",border:sp===p.name?`2px solid ${p.color}`:"2px solid #e2e8f0",color:sp===p.name?p.color:"#64748b",cursor:"pointer"}}>{p.name}</button>))}</div></div>
+):(<div style={{marginBottom:16,display:"flex",alignItems:"center",gap:8}}><div style={{width:10,height:10,borderRadius:"50%",background:ee?people.find(p=>p.name===ee.personName)?.color||myColor:myColor}}/><span style={{fontSize:14,fontWeight:600}}>{ee?ee.personName:myName}</span></div>)}
+<div style={{display:"flex",gap:12,marginBottom:20}}><div style={{flex:1}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>from</label><input type="time" value={ts} onChange={e=>setTS(e.target.value)} style={iS}/></div>
+<div style={{flex:1}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>to</label><input type="time" value={te} onChange={e=>setTE(e.target.value)} style={iS}/></div></div>
+<div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>{ee&&<button onClick={delBusy} style={{background:"#fef2f2",color:"#ef4444",border:"1px solid #fecaca",borderRadius:10,padding:"10px 18px",fontSize:14,cursor:"pointer",fontWeight:600,marginRight:"auto"}}>delete</button>}
+<button onClick={()=>setMO(false)} style={{background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 18px",fontSize:14,cursor:"pointer"}}>cancel</button>
+<button onClick={saveBusy} style={bP}>{ee?"save":"add"}</button></div></Modal>
+
+{/* Activity Modal */}
+<Modal isOpen={amo} onClose={()=>setAMO(false)}>
+<h3 style={{margin:"0 0 4px",fontSize:18,fontWeight:700,color:myColor}}>add an activity</h3>
+<p style={{color:"#64748b",fontSize:14,margin:"0 0 20px"}}>{actDL}</p>
+{isAdmin?(<div style={{marginBottom:16}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>who?</label>
+<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{people.map(p=>(<button key={p.name} onClick={()=>setActP(p.name)} style={{padding:"6px 14px",borderRadius:8,fontSize:13,fontWeight:600,background:actP===p.name?p.color+"18":"#f8fafc",border:actP===p.name?`2px solid ${p.color}`:"2px solid #e2e8f0",color:actP===p.name?p.color:"#64748b",cursor:"pointer"}}>{p.name}</button>))}</div></div>
+):(<div style={{marginBottom:16,display:"flex",alignItems:"center",gap:8}}><div style={{width:10,height:10,borderRadius:"50%",background:myColor}}/><span style={{fontSize:14,fontWeight:600}}>{myName}</span></div>)}
+<div style={{marginBottom:16}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>invite:</label>
+<div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>{(()=>{const others=people.filter(p=>p.name!==(isAdmin&&actP?actP:myName));const allSelected=others.length>0&&others.every(p=>ai.includes(p.name));
+return<><button onClick={()=>setAI(allSelected?[]:others.map(p=>p.name))} style={{padding:"6px 14px",borderRadius:8,fontSize:13,fontWeight:700,background:allSelected?"#e040fb18":"#f8fafc",border:allSelected?"2px solid #e040fb":"2px solid #e2e8f0",color:allSelected?"#e040fb":"#64748b",cursor:"pointer"}}>all</button>
+{others.map(p=>{const s=ai.includes(p.name);return(<button key={p.name} onClick={()=>setAI(s?ai.filter(n=>n!==p.name):[...ai,p.name])} style={{padding:"6px 14px",borderRadius:8,fontSize:13,fontWeight:600,background:s?p.color+"18":"#f8fafc",border:s?`2px solid ${p.color}`:"2px solid #e2e8f0",color:s?p.color:"#64748b",cursor:"pointer"}}>{p.name}</button>)})}</>})()}</div></div>
+<div style={{display:"flex",gap:12,marginBottom:16}}><div style={{flex:1}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>from</label><input type="time" value={ats} onChange={e=>setATS(e.target.value)} style={iS}/></div>
+<div style={{flex:1}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>to</label><input type="time" value={ate} onChange={e=>setATE(e.target.value)} style={iS}/></div></div>
+<div style={{marginBottom:20}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>what?</label>
+<input value={adesc} onChange={e=>setADesc(e.target.value)} placeholder="farmer's market, hiking, brunch..." style={iS}/></div>
+<div style={{marginBottom:20}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>where? <span style={{fontWeight:400,color:"#94a3b8"}}>(optional)</span></label>
+<input value={aloc} onChange={e=>setALoc(e.target.value)} placeholder="address, park name, restaurant..." style={iS}/></div>
+<div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><button onClick={()=>setAMO(false)} style={{background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 18px",fontSize:14,cursor:"pointer"}}>cancel</button>
+<button onClick={saveAct} disabled={!adesc.trim()} style={{...bP,background:!adesc.trim()?"#cbd5e1":myColor,cursor:!adesc.trim()?"not-allowed":"pointer"}}>add activity</button></div></Modal>
+
+{/* ===== PROPOSAL RESPONSE MODAL ===== */}
+<Modal isOpen={respModal!==null} onClose={()=>setRM(null)}>
+{respModal&&(()=>{
+const pr=respModal;const sC=people.find(p=>p.name===pr.person)?.color||"#e040fb";
+const[y,m,d]=pr.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
+const mySt=getMyStatus(pr);const isSender=pr.person===myName;
+return(<>
+<h3 style={{margin:"0 0 4px",fontSize:18,fontWeight:700,color:sC}}>hangout proposal</h3>
+<div style={{fontSize:14,fontWeight:600,color:"#1e293b",marginTop:8}}>from: {pr.person}</div>
+<div style={{fontSize:13,color:"#475569",marginTop:4}}>{dl} · {fTD(pT(pr.timeStart))} – {fTD(pT(pr.timeEnd))}</div>
+{pr.notes&&<div style={{fontSize:13,color:"#64748b",marginTop:4,fontStyle:"italic"}}>"{pr.notes}"</div>}
+{pr.location&&<div style={{fontSize:13,color:"#64748b",marginTop:4}}>📍 {pr.location}</div>}
+{pr.sendTo&&<div style={{fontSize:12,color:"#94a3b8",marginTop:6}}>sent to: {Array.isArray(pr.sendTo)?pr.sendTo.join(", "):pr.sendTo}</div>}
+
+{/* Show responses */}
+{pr.responses&&Object.entries(pr.responses).length>0&&(<div style={{marginTop:12,padding:"10px 14px",background:"#f8fafc",borderRadius:10}}>
+<div style={{fontSize:12,fontWeight:700,color:"#64748b",marginBottom:6}}>responses:</div>
+{Object.entries(pr.responses).map(([name,r])=>{const pc=people.find(p=>p.name===name)?.color||"#94a3b8";
+return(<div key={name} style={{fontSize:13,marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
+<div style={{width:8,height:8,borderRadius:"50%",background:SC[r.status]||"#94a3b8"}}/>
+<span style={{fontWeight:600,color:pc}}>{name}</span>
+<span style={{color:SC[r.status]}}>{r.status==="accepted"?"yes we can!":r.status==="declined"?"womp womp":r.status==="raincheck"?"raincheck":"pending"}</span>
+{r.note&&<span style={{color:"#94a3b8",fontStyle:"italic"}}>— {r.note}</span>}
+{r.suggestedDate&&<span style={{color:"#f59e0b",fontSize:11}}> → {r.suggestedDate}</span>}
+</div>)})}</div>)}
+
+{/* Seen by */}
+{pr.seenBy&&Object.keys(pr.seenBy).length>0&&isSender&&(<div style={{marginTop:8,padding:"8px 14px",background:"#f0fdf4",borderRadius:10}}>
+<div style={{fontSize:11,fontWeight:600,color:"#94a3b8",marginBottom:4}}>seen by:</div>
+<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{Object.entries(pr.seenBy).map(([name,time])=>{const pc=people.find(p=>p.name===name)?.color||"#94a3b8";
+return(<span key={name} style={{fontSize:12,color:pc,fontWeight:600}}>{name}</span>)})}</div></div>)}
+
+{/* Response buttons if I'm a recipient */}
+{!isSender&&pr.sendTo?.includes(myName)&&!respMode&&(mySt==="pending")&&(
+<div style={{marginTop:16,display:"flex",flexDirection:"column",gap:8}}>
+<button onClick={()=>setRespMode("yes")} style={{padding:"12px 20px",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer",background:"#22c55e",color:"#fff",border:"none"}}>yes we can!</button>
+<button onClick={()=>setRespMode("no")} style={{padding:"12px 20px",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer",background:"#ef4444",color:"#fff",border:"none"}}>womp womp</button>
+<button onClick={()=>setRespMode("rc")} style={{padding:"12px 20px",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer",background:"#f59e0b",color:"#fff",border:"none"}}>raincheck?</button>
+</div>
+)}
+
+{/* Note + confirm for yes */}
+{respMode==="yes"&&(<div style={{marginTop:16}}>
+<label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>add a note (optional)</label>
+<input value={respNote} onChange={e=>setRN(e.target.value)} placeholder="can't wait!" style={iS}/>
+<div style={{display:"flex",gap:10}}><button onClick={()=>setRespMode(null)} style={{background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 18px",fontSize:14,cursor:"pointer"}}>back</button>
+<button onClick={()=>respondProp(pr.id,"accepted",respNote)} style={{background:"#22c55e",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>confirm</button></div></div>)}
+
+{/* Note + confirm for womp womp */}
+{respMode==="no"&&(<div style={{marginTop:16}}>
+<label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>add a note (optional)</label>
+<input value={respNote} onChange={e=>setRN(e.target.value)} placeholder="sorry, can't make it..." style={iS}/>
+<div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+<button onClick={()=>setRespMode(null)} style={{background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 18px",fontSize:14,cursor:"pointer"}}>back</button>
+<button onClick={()=>{respondProp(pr.id,"declined",respNote)}} style={{background:"#ef4444",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>decline & keep on calendar</button>
+<button onClick={()=>{respondProp(pr.id,"declined",respNote);setTimeout(()=>hidePropFromCal(pr.id),500)}} style={{background:"#94a3b8",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>decline & remove from calendar</button>
+</div></div>)}
+
+{/* Raincheck with date suggestion */}
+{respMode==="rc"&&(<div style={{marginTop:16}}>
+<label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>suggest another day</label>
+<input type="date" value={rcDate} onChange={e=>setRCDate(e.target.value)} style={{...iS,marginBottom:8}}/>
+<div style={{display:"flex",gap:12,marginBottom:8}}>
+<div style={{flex:1}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:4}}>from</label><input type="time" value={rcTS} onChange={e=>setRCTS(e.target.value)} style={iS}/></div>
+<div style={{flex:1}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:4}}>to</label><input type="time" value={rcTE} onChange={e=>setRCTE(e.target.value)} style={iS}/></div></div>
+<label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>note (optional)</label>
+<input value={respNote} onChange={e=>setRN(e.target.value)} placeholder="how about next week instead?" style={iS}/>
+<div style={{display:"flex",gap:10}}><button onClick={()=>setRespMode(null)} style={{background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 18px",fontSize:14,cursor:"pointer"}}>back</button>
+<button onClick={()=>respondProp(pr.id,"raincheck",respNote,rcDate,rcTS,rcTE)} style={{background:"#f59e0b",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>suggest raincheck</button></div></div>)}
+
+{/* Already responded */}
+{mySt!=="pending"&&mySt!=="sent"&&!respMode&&(
+<div style={{marginTop:12,padding:"10px 14px",background:SC[mySt]+"15",borderRadius:10,display:"flex",alignItems:"center",gap:8}}>
+<div style={{width:10,height:10,borderRadius:"50%",background:SC[mySt]}}/>
+<span style={{fontSize:14,fontWeight:600,color:SC[mySt]}}>you responded: {mySt==="accepted"?"yes we can!":mySt==="declined"?"womp womp":"raincheck?"}</span></div>
+)}
+</>)})()}
+</Modal>
+
+{/* ===== ACTIVITY DETAIL MODAL ===== */}
+<Modal isOpen={viewAct!==null} onClose={()=>setVA(null)}>
+{viewAct&&(()=>{
+const a=viewAct;const c=people.find(p=>p.name===a.person)?.color||"#e040fb";
+const[y,m,d]=a.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
+const isOwner=a.person===myName;const isInvited=Array.isArray(a.invite)?a.invite.includes(myName):false;
+const resp=a.responses||{};const myResp=resp[myName]?.status;
+return(<>
+<h3 style={{margin:"0 0 4px",fontSize:18,fontWeight:700,color:c}}>★ {a.description}</h3>
+<div style={{marginTop:8}}>
+<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}><div style={{width:10,height:10,borderRadius:"50%",background:c}}/><span style={{fontSize:14,fontWeight:600}}>{a.person}</span></div>
+<div style={{fontSize:13,color:"#475569"}}>{dl} · {fTD(pT(a.timeStart))} – {fTD(pT(a.timeEnd))}</div>
+{a.location&&<div style={{fontSize:13,color:"#64748b",marginTop:4}}>📍 {a.location}</div>}
+{a.invite&&<div style={{fontSize:13,color:"#94a3b8",marginTop:6}}>invited: {Array.isArray(a.invite)?a.invite.join(", "):a.invite}</div>}
+</div>
+
+{/* Responses */}
+{Object.entries(resp).length>0&&(<div style={{marginTop:12,padding:"10px 14px",background:"#f8fafc",borderRadius:10}}>
+<div style={{fontSize:12,fontWeight:700,color:"#64748b",marginBottom:6}}>responses:</div>
+{Object.entries(resp).map(([name,r])=>{const pc=people.find(p=>p.name===name)?.color||"#94a3b8";
+return(<div key={name} style={{fontSize:13,marginBottom:4,display:"flex",alignItems:"center",gap:6}}>
+<div style={{width:8,height:8,borderRadius:"50%",background:SC[r.status]||"#94a3b8"}}/>
+<span style={{fontWeight:600,color:pc}}>{name}</span>
+<span style={{color:SC[r.status]||"#94a3b8"}}>{r.status==="accepted"?"yes we can!":r.status==="declined"?"womp womp":r.status==="raincheck"?"raincheck":"pending"}</span>
+{r.note&&<span style={{color:"#94a3b8",fontStyle:"italic"}}>— "{r.note}"</span>}
+{r.suggestedDate&&<span style={{color:"#f59e0b",fontSize:11}}> → {r.suggestedDate}</span>}
+</div>)})}</div>)}
+
+{/* Response buttons */}
+{isInvited&&!isOwner&&!myResp&&!actRespMode&&(
+<div style={{marginTop:16,display:"flex",flexDirection:"column",gap:8}}>
+<button onClick={()=>setARM("yes")} style={{padding:"12px 20px",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer",background:"#22c55e",color:"#fff",border:"none"}}>yes we can!</button>
+<button onClick={()=>setARM("no")} style={{padding:"12px 20px",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer",background:"#ef4444",color:"#fff",border:"none"}}>womp womp</button>
+<button onClick={()=>setARM("rc")} style={{padding:"12px 20px",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer",background:"#f59e0b",color:"#fff",border:"none"}}>raincheck?</button>
+</div>)}
+
+{/* Yes — note + confirm */}
+{actRespMode==="yes"&&(<div style={{marginTop:16}}>
+<label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>add a note (optional)</label>
+<input value={actRespNote} onChange={e=>setARN(e.target.value)} placeholder="can't wait!" style={iS}/>
+<div style={{display:"flex",gap:10,marginTop:8}}>
+<button onClick={()=>setARM(null)} style={{padding:"10px 18px",borderRadius:10,fontSize:14,cursor:"pointer",background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0"}}>back</button>
+<button onClick={()=>{respondAct(a.id,"accepted",actRespNote);setARN("");setARM(null)}}
+style={{padding:"10px 18px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",background:"#22c55e",color:"#fff",border:"none"}}>confirm</button>
+</div></div>)}
+
+{/* Womp womp — note + keep/remove */}
+{actRespMode==="no"&&(<div style={{marginTop:16}}>
+<label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>add a note (optional)</label>
+<input value={actRespNote} onChange={e=>setARN(e.target.value)} placeholder="sorry, can't make it..." style={iS}/>
+<div style={{display:"flex",gap:10,flexWrap:"wrap",marginTop:8}}>
+<button onClick={()=>setARM(null)} style={{padding:"10px 18px",borderRadius:10,fontSize:14,cursor:"pointer",background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0"}}>back</button>
+<button onClick={()=>{respondAct(a.id,"declined",actRespNote);setARN("");setARM(null)}}
+style={{padding:"10px 18px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",background:"#ef4444",color:"#fff",border:"none"}}>decline & keep on calendar</button>
+<button onClick={()=>{respondAct(a.id,"declined",actRespNote);setARN("");setARM(null);setTimeout(()=>hideActFromCal(a.id),500)}}
+style={{padding:"10px 18px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",background:"#94a3b8",color:"#fff",border:"none"}}>decline & remove from calendar</button>
+</div></div>)}
+
+{/* Raincheck — date + note */}
+{actRespMode==="rc"&&(<div style={{marginTop:16}}>
+<label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>suggest another day</label>
+<input type="date" value={actRcDate} onChange={e=>setActRcDate(e.target.value)} style={{...iS,marginBottom:8}}/>
+<div style={{display:"flex",gap:12,marginBottom:8}}>
+<div style={{flex:1}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:4}}>from</label><input type="time" value={actRcTS} onChange={e=>setActRcTS(e.target.value)} style={iS}/></div>
+<div style={{flex:1}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:4}}>to</label><input type="time" value={actRcTE} onChange={e=>setActRcTE(e.target.value)} style={iS}/></div></div>
+<label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>note (optional)</label>
+<input value={actRespNote} onChange={e=>setARN(e.target.value)} placeholder="how about next week?" style={iS}/>
+<div style={{display:"flex",gap:10,marginTop:8}}>
+<button onClick={()=>setARM(null)} style={{padding:"10px 18px",borderRadius:10,fontSize:14,cursor:"pointer",background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0"}}>back</button>
+<button onClick={()=>{respondAct(a.id,"raincheck",actRespNote,actRcDate,actRcTS,actRcTE);setARN("");setARM(null);setActRcDate("");setActRcTS("14:00");setActRcTE("17:00")}}
+style={{padding:"10px 18px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",background:"#f59e0b",color:"#fff",border:"none"}}>suggest raincheck</button>
+</div></div>)}
+
+{/* Already responded */}
+{myResp&&!actRespMode&&(
+<div style={{marginTop:12,padding:"10px 14px",background:SC[myResp]+"15",borderRadius:10,display:"flex",alignItems:"center",gap:8}}>
+<div style={{width:10,height:10,borderRadius:"50%",background:SC[myResp]||"#94a3b8"}}/>
+<span style={{fontSize:14,fontWeight:600,color:SC[myResp]||"#94a3b8"}}>you responded: {myResp==="accepted"?"yes we can!":myResp==="declined"?"womp womp":"raincheck?"}</span></div>)}
+</>)})()}
+</Modal>
+
+</div>)}
+
+/* ===== MAP PAGE ===== */
+function MapPage({user,profile,allUsers,people,onBack}){
+const mapRef=useRef(null);const mapInst=useRef(null);
+const[acts,setActs]=useState([]);const[props,setProps]=useState([]);
+const[loading,setLoading]=useState(true);
+const myName=profile?.name||"";
+const isAdmin=(profile?.email||"").toLowerCase()===ADMIN.toLowerCase();
+
+useEffect(()=>{
+const aR=db.ref(P("activities")),pR=db.ref(P("proposals"));
+aR.on("value",s=>setActs(s.val()?Object.values(s.val()):[]));
+pR.on("value",s=>setProps(s.val()?Object.values(s.val()):[]));
+return()=>{aR.off();pR.off()}},[]);
+
+useEffect(()=>{
+if(!mapRef.current||mapInst.current)return;
+const map=L.map(mapRef.current).setView([45.52,-122.68],11);// Portland default
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:'© OpenStreetMap'}).addTo(map);
+mapInst.current=map;
+setTimeout(()=>map.invalidateSize(),100);
+return()=>{if(mapInst.current){mapInst.current.remove();mapInst.current=null}}},[]);
+
+// Add markers
+useEffect(()=>{
+if(!mapInst.current)return;
+const map=mapInst.current;
+// Clear old markers
+map.eachLayer(l=>{if(l instanceof L.Marker||l instanceof L.CircleMarker)map.removeLayer(l)});
+const bounds=[];const today=new Date();
+
+// Helper to create colored icon
+const makeIcon=(color)=>L.divIcon({className:"",html:`<div style="width:28px;height:28px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center"></div>`,iconSize:[28,28],iconAnchor:[14,14]});
+
+// Activities with coords
+acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);return new Date(y,m-1,d)>=today&&a.coords}).forEach(a=>{
+const c=people.find(p=>p.name===a.person)?.color||"#e040fb";
+const[y,m,d]=a.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+const mk=L.marker([a.coords.lat,a.coords.lng],{icon:makeIcon(c)}).addTo(map);
+mk.bindPopup(`<div style="font-family:'DM Sans',sans-serif;min-width:180px"><div style="font-weight:700;color:${c}">★ ${a.description}</div><div style="font-size:12px;color:#475569;margin-top:4px">${a.person} · ${dl}</div><div style="font-size:12px;color:#475569">${fTD(pT(a.timeStart))} – ${fTD(pT(a.timeEnd))}</div>${a.location?`<div style="font-size:12px;color:#64748b;margin-top:4px">📍 ${a.location}</div>`:""}</div>`);
+bounds.push([a.coords.lat,a.coords.lng])});
+
+// Proposals with coords
+props.filter(p=>{const[y,m,d]=p.date.split("-").map(Number);return new Date(y,m-1,d)>=today&&p.coords}).forEach(pr=>{
+const c=people.find(p=>p.name===pr.person)?.color||"#60a5fa";
+const[y,m,d]=pr.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+const resp=pr.responses||{};const accepted=Object.entries(resp).filter(([,r])=>r.status==="accepted").length;
+const mk=L.marker([pr.coords.lat,pr.coords.lng],{icon:makeIcon(c)}).addTo(map);
+mk.bindPopup(`<div style="font-family:'DM Sans',sans-serif;min-width:180px"><div style="font-weight:700;color:${c}">📩 ${pr.notes||"hangout"}</div><div style="font-size:12px;color:#475569;margin-top:4px">${pr.person} · ${dl}</div><div style="font-size:12px;color:#475569">${fTD(pT(pr.timeStart))} – ${fTD(pT(pr.timeEnd))}</div>${pr.location?`<div style="font-size:12px;color:#64748b;margin-top:4px">📍 ${pr.location}</div>`:""}<div style="font-size:11px;color:#22c55e;margin-top:4px">${accepted} confirmed</div></div>`);
+bounds.push([pr.coords.lat,pr.coords.lng])});
+
+// Friends' addresses (from allUsers)
+const adminProfile=Object.values(allUsers).find(u=>(u.email||"").toLowerCase()===ADMIN.toLowerCase());
+Object.values(allUsers).filter(u=>u.name&&u.address&&u.address.trim()).forEach(u=>{
+if(!isAdmin&&adminProfile&&u.name===adminProfile.name)return;// hide admin
+const c=people.find(p=>p.name===u.name)?.color||"#94a3b8";
+// Geocode address async
+geocode(u.address).then(loc=>{if(loc&&mapInst.current){
+const mk=L.circleMarker([loc.lat,loc.lng],{radius:10,fillColor:c,color:"#fff",weight:2,opacity:1,fillOpacity:0.7}).addTo(mapInst.current);
+mk.bindPopup(`<div style="font-family:'DM Sans',sans-serif"><div style="font-weight:700;color:${c}">${u.name}</div><div style="font-size:12px;color:#94a3b8;margin-top:2px">📍 general area</div></div>`);
+bounds.push([loc.lat,loc.lng]);
+if(bounds.length>1)mapInst.current.fitBounds(bounds,{padding:[40,40]})}})});
+
+// Fit bounds
+if(bounds.length>1)setTimeout(()=>{if(mapInst.current)mapInst.current.fitBounds(bounds,{padding:[40,40]})},500);
+else if(bounds.length===1)setTimeout(()=>{if(mapInst.current)mapInst.current.setView(bounds[0],13)},500);
+setLoading(false);
+},[acts,props,people,allUsers]);
+
+return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fafc",minHeight:"100vh",color:"#1e293b",padding:"24px 16px"}}><div style={{maxWidth:860,margin:"0 auto"}}>
+<button onClick={onBack} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:14,fontWeight:600,marginBottom:20}}>‹ back</button>
+<h1 style={{fontFamily:"'Nunito',sans-serif",fontSize:28,fontWeight:800,marginBottom:8,
+background:"linear-gradient(135deg,#e040fb,#4ECDC4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>crew map</h1>
+<p style={{color:"#94a3b8",fontSize:14,marginBottom:16}}>activities, proposals, and your crew's general areas</p>
+{/* Legend */}
+<div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:16,fontSize:12,color:"#64748b"}}>
+<span>● colored circles = activities & proposals</span>
+<span>○ faded circles = friend areas</span>
+</div>
+<div ref={mapRef} style={{height:480,borderRadius:12,border:"1px solid #e2e8f0",boxShadow:"0 2px 8px rgba(0,0,0,0.08)",marginBottom:20,background:"#e2e8f0"}}/>
+{loading&&<p style={{color:"#94a3b8",fontSize:13,textAlign:"center"}}>loading map...</p>}
+{/* List below map */}
+<div style={{marginTop:8}}>
+{acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);return new Date(y,m-1,d)>=new Date()&&a.location}).length>0&&(<>
+<h3 style={{fontSize:16,fontWeight:700,marginBottom:8}}>upcoming activities with locations</h3>
+{acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);return new Date(y,m-1,d)>=new Date()&&a.location}).map(a=>{const c=people.find(p=>p.name===a.person)?.color||"#e040fb";
+const[y,m,d]=a.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+return(<div key={a.id} style={{padding:"10px 14px",marginBottom:6,background:c+"08",borderRadius:10,borderLeft:`4px solid ${c}`}}>
+<div style={{fontWeight:600,fontSize:13,color:c}}>★ {a.description}</div>
+<div style={{fontSize:12,color:"#475569"}}>{a.person} · {dl} · {fTD(pT(a.timeStart))} – {fTD(pT(a.timeEnd))}</div>
+<div style={{fontSize:12,color:"#64748b"}}>📍 {a.location}</div></div>)})}</>)}
+{props.filter(p=>{const[y,m,d]=p.date.split("-").map(Number);return new Date(y,m-1,d)>=new Date()&&p.location}).length>0&&(<>
+<h3 style={{fontSize:16,fontWeight:700,marginBottom:8,marginTop:16}}>proposals with locations</h3>
+{props.filter(p=>{const[y,m,d]=p.date.split("-").map(Number);return new Date(y,m-1,d)>=new Date()&&p.location}).map(pr=>{const c=people.find(p=>p.name===pr.person)?.color||"#60a5fa";
+const[y,m,d]=pr.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+return(<div key={pr.id} style={{padding:"10px 14px",marginBottom:6,background:c+"08",borderRadius:10,borderLeft:`4px dashed ${c}`}}>
+<div style={{fontWeight:600,fontSize:13,color:c}}>📩 {pr.notes||"hangout"}</div>
+<div style={{fontSize:12,color:"#475569"}}>{pr.person} · {dl} · {fTD(pT(pr.timeStart))} – {fTD(pT(pr.timeEnd))}</div>
+<div style={{fontSize:12,color:"#64748b"}}>📍 {pr.location}</div></div>)})}</>)}
+</div>
+</div></div>)}
+
+/* ===== ONBOARDING ===== */
+function Onboarding({user,onDone}){
+const[step,setStep]=useState(0);
+const steps=[
+{emoji:"👋",title:"welcome to can we kick it!",desc:"the easiest way to find when your crew is free to hang out. let's show you how it works."},
+{emoji:"🗓️",title:"add your available times",desc:"tap any day on the calendar and choose 'add available time.' enter the hours you're free — if you don't add anything for a day, it means you're unavailable."},
+{emoji:"⭐",title:"share activities & invite friends",desc:"going to the farmer's market? hiking this weekend? tap a day, choose 'add my activity,' describe what you're doing and invite whoever you want. they'll see it on their calendar."},
+{emoji:"🤝",title:"propose a hangout",desc:"found overlapping time? scroll to 'hangout proposal,' pick a day and time, add a note about what you want to do, and send it. your crew can respond with 'yes we can!', 'womp womp', or 'raincheck?' — each with an optional note."},
+{emoji:"🔔",title:"stay in the loop",desc:"check the hamburger menu (☰) for notifications, calendar export, settings, and FAQ. you can control read receipts, notification preferences, and more in settings."},
+];
+const finish=()=>{db.ref(P(`users/${user.uid}/hasSeenOnboarding`)).set(true);onDone()};
+const s=steps[step];const isLast=step===steps.length-1;
+return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f8fafc",fontFamily:"'DM Sans','Nunito',sans-serif",padding:20}}>
+<div style={{background:"#fff",borderRadius:20,padding:32,maxWidth:440,width:"100%",boxShadow:"0 4px 24px rgba(0,0,0,0.08)",border:"1px solid #e2e8f0",textAlign:"center"}}>
+<div style={{fontSize:48,marginBottom:16}}>{s.emoji}</div>
+<h2 style={{fontFamily:"'Nunito',sans-serif",fontSize:22,fontWeight:800,marginBottom:12,
+background:"linear-gradient(135deg,#e040fb,#60a5fa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{s.title}</h2>
+<p style={{color:"#475569",fontSize:15,lineHeight:1.6,marginBottom:28}}>{s.desc}</p>
+{/* Progress dots */}
+<div style={{display:"flex",justifyContent:"center",gap:8,marginBottom:24}}>
+{steps.map((_,i)=><div key={i} style={{width:i===step?24:8,height:8,borderRadius:4,background:i===step?"#e040fb":"#e2e8f0",transition:"all 0.3s"}}/>)}</div>
+<div style={{display:"flex",gap:10,justifyContent:"center"}}>
+{step>0&&<button onClick={()=>setStep(step-1)} style={{padding:"12px 24px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0"}}>back</button>}
+{isLast?
+<button onClick={finish} style={{padding:"12px 24px",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer",background:"#e040fb",color:"#fff",border:"none"}}>let's go!</button>:
+<button onClick={()=>setStep(step+1)} style={{padding:"12px 24px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",background:"#e040fb",color:"#fff",border:"none"}}>next</button>}
+</div>
+<button onClick={finish} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:12,marginTop:16}}>skip</button>
+</div></div>)}
+
+/* ===== FAQ ===== */
+function FAQ({onBack}){
+const faqs=[
+{q:"how do I add my available times?",a:"tap any day on the calendar and choose 'add available time.' pick a start and end time for when you're free. you can add multiple time blocks per day. if you don't add anything for a day, the app assumes you're unavailable that day."},
+{q:"how does the overlap feature work?",a:"under 'can we kick it?' the app finds days and times where you and at least one other person are both free for 3+ hours. you can filter by specific friends using 'who do you want to hang with?' or see overlap with everyone."},
+{q:"what are activities?",a:"activities are things you're doing that others might want to join — farmer's market, hiking, brunch, etc. tap a day, choose 'add my activity,' describe what you're doing, and pick who to invite. the day gets outlined in your color on the calendar."},
+{q:"how do hangout proposals work?",a:"scroll to 'hangout proposal,' pick who to invite, choose a day and time, add a note about what you want to do, then tap 'can we kick it?' everyone you invited gets a notification and sees it on their calendar."},
+{q:"how do I respond to a proposal?",a:"you can respond from the notification (tap 'view & respond') or by clicking the proposal chip on your calendar. choose 'yes we can!' to accept, 'womp womp' to decline, or 'raincheck?' to suggest a different day. each option lets you add a note."},
+{q:"what happens when I decline?",a:"you can choose to keep the event visible on your calendar (grayed out) or remove it. even if removed, you can always find it again through the original notification."},
+{q:"what does raincheck do?",a:"raincheck lets you suggest an alternative day and time. the proposal sender sees your counter-suggestion and can respond accordingly."},
+{q:"what do the calendar colors mean?",a:"each person picks a color when they sign up. their available times and activities show in their color. proposals appear with a dashed border — green means accepted, gray means declined, amber means raincheck, and the sender's color means pending."},
+{q:"how do I export to my calendar?",a:"tap the hamburger menu (☰) and choose 'export to calendar.' this downloads an .ics file with your overlapping hangout times, activities, and confirmed proposals. open it to add everything to Google Calendar, Apple Calendar, or Outlook."},
+{q:"what are read receipts?",a:"when enabled (in settings), others can see that you've viewed their proposal. this helps the sender know who's seen it even if they haven't responded yet. you can turn this off anytime in settings for full privacy."},
+{q:"how do notifications work?",a:"you get in-app notifications when someone sends you a proposal, invites you to an activity, or responds to your proposal. check the hamburger menu for the notification badge. email and text notifications are coming soon."},
+{q:"can I change my name or color?",a:"yes — go to settings (hamburger menu → settings) to update your name, color, address, phone, and notification preferences."},
+];
+const[open,setOpen]=useState(null);
+return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fafc",minHeight:"100vh",color:"#1e293b",padding:"24px 16px"}}><div style={{maxWidth:600,margin:"0 auto"}}>
+<button onClick={onBack} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:14,fontWeight:600,marginBottom:20}}>‹ back</button>
+<h1 style={{fontFamily:"'Nunito',sans-serif",fontSize:28,fontWeight:800,marginBottom:8,
+background:"linear-gradient(135deg,#e040fb,#4ECDC4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>FAQ</h1>
+<p style={{color:"#94a3b8",fontSize:14,marginBottom:24}}>everything you need to know about can we kick it</p>
+{faqs.map((f,i)=>(<div key={i} style={{background:"#fff",borderRadius:12,border:"1px solid #e2e8f0",marginBottom:8,overflow:"hidden",boxShadow:"0 1px 2px rgba(0,0,0,0.03)"}}>
+<button onClick={()=>setOpen(open===i?null:i)} style={{width:"100%",textAlign:"left",padding:"16px 20px",background:"none",border:"none",cursor:"pointer",fontSize:14,fontWeight:600,color:"#1e293b",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+{f.q}<span style={{color:"#94a3b8",fontSize:18,transition:"transform 0.2s",transform:open===i?"rotate(45deg)":"rotate(0deg)",flexShrink:0,marginLeft:12}}>+</span></button>
+{open===i&&<div style={{padding:"0 20px 16px",fontSize:14,color:"#475569",lineHeight:1.6}}>{f.a}</div>}
+</div>))}</div></div>)}
+
+/* ===== APP ===== */
+function App(){const[page,setPage]=useState("loading");const[user,setUser]=useState(null);const[profile,setProfile]=useState(null);const[allUsers,setAU]=useState({});const[people,setPpl]=useState([]);
+const[openPropId,setOPI]=useState(null);const[openActId,setOAI]=useState(null);
+useEffect(()=>{db.ref(P("users")).on("value",s=>setAU(s.val()||{}));
+db.ref(P("people")).on("value",s=>{const d=s.val();setPpl(d?Object.values(d):[])});
+db.ref(P("testPeople")).on("value",s=>{const t=s.val()?Object.values(s.val()):[];setPpl(prev=>{const m=[...prev];t.forEach(x=>{if(!m.find(p=>p.name===x.name))m.push(x)});return m})})},[]);
+useEffect(()=>{const unsub=au.onAuthStateChanged(u=>{if(u){setUser(u);
+db.ref(P(`users/${u.uid}`)).on("value",s=>{const p=s.val();if(p){setProfile(p);
+setPage(pg=>{if(pg==="loading"||pg==="auth"){return p.hasSeenOnboarding===false?"onboarding":"app"}return pg})}
+else setPage("auth")});
+}else{setUser(null);setProfile(null);setPage("landing")}});return()=>unsub()},[]);
+
+if(page==="loading")return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0a0a0a"}}><p style={{color:"#475569",fontSize:16,fontFamily:"'DM Sans',sans-serif"}}>loading...</p></div>;
+if(page==="landing")return<Landing onEnter={()=>setPage("auth")}/>;
+if(page==="auth")return<Auth onAuth={u=>setUser(u)}/>;
+if(page==="onboarding"&&user)return<Onboarding user={user} onDone={()=>setPage("app")}/>;
+if(page==="settings"&&profile)return<Settings user={user} profile={profile} allUsers={allUsers} onBack={()=>setPage("app")}/>;
+if(page==="notifications"&&profile)return<Notifs user={user} people={people} profile={profile} onBack={()=>setPage("app")} onViewProposal={(id)=>{setOPI(id);setPage("app")}} onViewActivity={(id)=>{setOAI(id);setPage("app")}}/>;
+if(page==="faq")return<FAQ onBack={()=>setPage("app")}/>;
+if(page==="map"&&profile)return<MapPage user={user} profile={profile} allUsers={allUsers} people={people} onBack={()=>setPage("app")}/>;
+if(page==="app"&&profile)return<Main user={user} profile={profile} allUsers={allUsers} onSettings={()=>setPage("settings")} onNotifs={()=>setPage("notifications")} onFAQ={()=>setPage("faq")} onMap={()=>setPage("map")} openProposalId={openPropId} clearOpenProposal={()=>setOPI(null)} openActId={openActId} clearOpenAct={()=>setOAI(null)}/>;
+return null}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
