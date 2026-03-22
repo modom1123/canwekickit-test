@@ -879,8 +879,12 @@ useEffect(()=>{db.ref(P("users")).on("value",s=>setAU(s.val()||{}));
 db.ref(P("people")).on("value",s=>{const d=s.val();setPpl(d?Object.values(d):[])});
 db.ref(P("testPeople")).on("value",s=>{const t=s.val()?Object.values(s.val()):[];setPpl(prev=>{const m=[...prev];t.forEach(x=>{if(!m.find(p=>p.name===x.name))m.push(x)});return m})})},[]);
 useEffect(()=>{const unsub=au.onAuthStateChanged(u=>{if(u){setUser(u);
-db.ref(P(`users/${u.uid}`)).on("value",s=>{const p=s.val();if(p){setProfile(p);
+db.ref(P(`users/${u.uid}`)).on("value",async s=>{const p=s.val();if(p){setProfile(p);
 setPage(pg=>{if(pg==="loading"||pg==="auth"){return p.hasSeenOnboarding===false?"onboarding":"app"}return pg})}
+else if(SANDBOX){// Auto-copy from production
+const prod=await db.ref(`users/${u.uid}`).once("value");const pp=prod.val();
+if(pp){await db.ref(P(`users/${u.uid}`)).set({...pp,hasSeenOnboarding:true});setProfile(pp);setPage("app")}
+else setPage("auth")}
 else setPage("auth")});
 }else{setUser(null);setProfile(null);setPage("landing")}});return()=>unsub()},[]);
 
