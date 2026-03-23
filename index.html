@@ -24,8 +24,8 @@ window.db=firebase.database();window.auth=firebase.auth();
 const{useState,useMemo,useCallback,useEffect,useRef}=React;
 const db=window.db,au=window.auth;
 const SANDBOX=new URLSearchParams(window.location.search).get("sandbox")==="true";
-const P=path=>SANDBOX?`sandbox/${path}`:path;// prefix all db paths
-const CP=(crewId,path)=>P(`crews/${crewId}/${path}`);// crew-scoped paths
+const P=path=>SANDBOX?`sandbox/${path}`:path;
+const CP=(crewId,path)=>P(`crews/${crewId}/${path}`);
 const ICONS=["🎯","🔥","⭐","🎪","🌊","🎸","🍕","🌲","🎮","🏀","🎭","🚀","🌈","🎵","🏕","🎲"];
 const DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"],MN=["January","February","March","April","May","June","July","August","September","October","November","December"];
 const CO=[{n:"Coral",v:"#FF6B6B"},{n:"Ocean",v:"#4ECDC4"},{n:"Sunflower",v:"#FFE66D"},{n:"Lavender",v:"#A78BFA"},{n:"Mint",v:"#6BCB77"},{n:"Sky",v:"#60A5FA"},{n:"Peach",v:"#FDBA74"},{n:"Rose",v:"#F9A8D4"},{n:"Lime",v:"#BEF264"},{n:"Teal",v:"#2DD4BF"}];
@@ -34,13 +34,10 @@ const gDIM=(y,m)=>new Date(y,m+1,0).getDate(),gFDOM=(y,m)=>new Date(y,m,1).getDa
 const fD=(y,m,d)=>`${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
 const pT=s=>{const[h,m]=s.split(":").map(Number);return h+m/60};
 const fTD=h=>{const hr=Math.floor(h),mn=Math.round((h-hr)*60),ap=hr>=12?"PM":"AM",h12=hr===0?12:hr>12?hr-12:hr;return`${h12}:${String(mn).padStart(2,"0")} ${ap}`};
-// Status colors
 const SC={pending:"#94a3b8",accepted:"#22c55e",declined:"#ef4444",raincheck:"#f59e0b"};
 
-// Geocode: address → {lat,lng} using Nominatim (free, no API key)
 async function geocode(address){
 if(!address||!address.trim())return null;
-// Check cache first
 const cacheKey=address.trim().toLowerCase().replace(/[^a-z0-9]/g,"_");
 const snap=await db.ref(P(`geocache/${cacheKey}`)).once("value");
 if(snap.val())return snap.val();
@@ -159,7 +156,7 @@ style={{padding:"14px 16px",marginBottom:8,background:n.read?"#fff":c+"08",borde
 </div>)})}</div></div>)}
 
 /* ===== MAIN APP ===== */
-function Main({user,profile,allUsers,crewId,crewInfo,userCrews,onSettings,onNotifs,onFAQ,onMap,onSwitchCrew,onSelectCrew,onInvite,onArchiveCrew,onDeleteCrew,openProposalId,clearOpenProposal,openActId,clearOpenAct}){
+function Main({user,profile,allUsers,crewId,crewInfo,userCrews,onSettings,onNotifs,onFAQ,onMap,onSwitchCrew,onSelectCrew,onInvite,onArchiveCrew,onDeleteCrew,onMaster,openProposalId,clearOpenProposal,openActId,clearOpenAct}){
 const[sideOpen,setSO]=useState(false);
 const today=new Date();
 const[cM,setCM]=useState(today.getMonth());const[cY,setCY]=useState(today.getFullYear());
@@ -179,10 +176,8 @@ const[sandbox,setSandbox]=useState(false);
 const pfx=sandbox?"sandbox/":"";
 const dbR=path=>db.ref(pfx+path);
 const[nn,setNN]=useState("");const[nc,setNC]=useState(CO[0].v);const[uc,setUC]=useState(0);
-// Proposal response modal
 const[respModal,setRM]=useState(null);
 const[respMode,setRespMode]=useState(null);
-// Activity detail modal
 const[viewAct,setVA]=useState(null);
 const[actRespNote,setARN]=useState("");
 const[actRespMode,setARM]=useState(null);
@@ -204,18 +199,13 @@ a.on("value",s=>setBT(s.val()||{}));b.on("value",s=>setProps(s.val()?Object.valu
 c.on("value",s=>setActs(s.val()?Object.values(s.val()):[]));d.on("value",s=>setTP(s.val()?Object.values(s.val()):[]));
 e.on("value",s=>{const mem=s.val()||{};const mp=Object.values(mem).filter(u=>u.name&&u.color).map(u=>({name:u.name,color:u.color}));setPpl(prev=>{const merged=[...mp];(prev.filter(p=>!mp.find(m=>m.name===p.name))&&tp||[]).forEach(t=>{if(!merged.find(m=>m.name===t.name))merged.push(t)});return merged})});
 return()=>{a.off();b.off();c.off();d.off();e.off()}},[crewId]);
-// Keep viewAct in sync
 useEffect(()=>{if(viewAct){const fresh=acts.find(a=>a.id===viewAct.id);if(fresh)setVA(fresh)}},[acts]);
-// Auto-open activity from notification
 useEffect(()=>{if(openActId&&acts.length>0){const a=acts.find(x=>x.id===openActId);if(a){setVA(a);setARM(null);setARN("");setActRcDate("");setActRcTS("14:00");setActRcTE("17:00");if(clearOpenAct)clearOpenAct()}}},[openActId,acts]);
-// Record seenBy on a proposal if read receipts enabled
 const recordSeen=(prId)=>{if(profile?.showReadReceipts===false)return;
 const idx=props.findIndex(p=>p.id===prId);if(idx===-1)return;
 const updated=JSON.parse(JSON.stringify(props));if(!updated[idx].seenBy)updated[idx].seenBy={};
 if(!updated[idx].seenBy[myName]){updated[idx].seenBy[myName]=Date.now();db.ref(CP(crewId,"proposals")).set(updated)}};
-// Auto-open proposal from notification
 useEffect(()=>{if(openProposalId&&props.length>0){const pr=props.find(p=>p.id===openProposalId);if(pr){setRM(pr);setRN("");setRCDate("");setRCTS("14:00");setRCTE("17:00");setRespMode(null);recordSeen(pr.id);if(clearOpenProposal)clearOpenProposal()}}},[openProposalId,props]);
-// Merge test people with crew members
 useEffect(()=>{setPpl(prev=>{const m=[...prev.filter(p=>!tp.find(t=>t.name===p.name)),...tp];
 const adminProfile=Object.values(allUsers).find(u=>(u.email||"").toLowerCase()===ADMIN.toLowerCase());
 return isAdmin?m:m.filter(p=>!adminProfile||p.name!==adminProfile.name)})},[tp,isAdmin,allUsers]);
@@ -255,7 +245,6 @@ if(updated[idx].responses?.[myName])updated[idx].responses[myName].hidden=true;
 db.ref(CP(crewId,"activities")).set(updated)};
 
 const submitProp=async()=>{if(!pDay)return;const to=pst.length?pst:people.filter(p=>p.name!==myName).map(p=>p.name);
-// Build initial responses object — everyone starts as pending
 const resp={};to.forEach(n=>{resp[n]={status:"pending",note:"",hidden:false}});
 const loc=ploc.trim()?await geocode(ploc.trim()):null;
 const np={person:myName,date:pDay,timeStart:pts2,timeEnd:pte,notes:pn,location:ploc.trim()||"",coords:loc,sendTo:to,responses:resp,id:Date.now(),uid:user.uid};
@@ -264,7 +253,6 @@ sendNotif(db,myName,to,`${myName} proposed: ${pn||"let's kick it!"}${ploc.trim()
 setPN("");setPST([]);setPLoc("")};
 const delProp=id=>{const p=props.find(x=>x.id===id);if(!canEdit&&p?.uid&&p.uid!==user.uid)return;const u=props.filter(x=>x.id!==id);db.ref(CP(crewId,"proposals")).set(u.length?u:null)};
 
-// Respond to a proposal
 const respondProp=(propId,status,note,sugDate,sugTS,sugTE)=>{
 const idx=props.findIndex(p=>p.id===propId);if(idx===-1)return;
 const updated=JSON.parse(JSON.stringify(props));
@@ -313,13 +301,12 @@ const r=a.responses?.[myName];
 if(r?.hidden)return false;
 return true;
 })};
-// Get proposals that show on a given day for this user
 const gPFD=day=>{const dk=fD(cY,cM,day);return props.filter(p=>{
 if(p.date!==dk)return false;
-if(p.person===myName)return true;// I sent it
-const r=p.responses?.[myName];if(!r)return p.sendTo?.includes(myName);// sent to me, no response yet
-if(r.hidden)return false;// I chose to hide it
-return true;// show it
+if(p.person===myName)return true;
+const r=p.responses?.[myName];if(!r)return p.sendTo?.includes(myName);
+if(r.hidden)return false;
+return true;
 })};
 const getMyStatus=(pr)=>{if(pr.person===myName)return"sent";return pr.responses?.[myName]?.status||"pending"};
 const getStatusColor=(st)=>st==="accepted"?"#22c55e":st==="declined"?"#94a3b8":st==="raincheck"?"#f59e0b":"#e040fb";
@@ -328,7 +315,6 @@ const exportCal=()=>{const events=[];
 upHE.forEach(([day,slots])=>{const dk=fD(cY,cM,parseInt(day));slots.forEach(s=>{const sh=Math.floor(s.start),sm=Math.round((s.start-sh)*60),eh=Math.floor(s.end),em=Math.round((s.end-eh)*60);
 events.push({date:dk,timeStart:`${String(sh).padStart(2,"0")}:${String(sm).padStart(2,"0")}`,timeEnd:`${String(eh).padStart(2,"0")}:${String(em).padStart(2,"0")}`,title:"can we kick it? — free",description:"overlap with crew"})})});
 acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);return new Date(y,m-1,d)>=today}).forEach(a=>{events.push({date:a.date,timeStart:a.timeStart,timeEnd:a.timeEnd,title:`★ ${a.description}`,description:`${a.person}'s activity`})});
-// Export confirmed proposals
 props.filter(p=>{const r=p.responses?.[myName];return r?.status==="accepted"||p.person===myName}).forEach(p=>{events.push({date:p.date,timeStart:p.timeStart,timeEnd:p.timeEnd,title:`hangout: ${p.notes||"kick it"}`,description:`proposed by ${p.person}`})});
 if(!events.length){alert("no events to export");return}dlICS(events,"can-we-kick-it.ics")};
 
@@ -344,7 +330,7 @@ return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fa
 {sideOpen&&<span style={{fontSize:13,fontWeight:700,color:"#1e293b",whiteSpace:"nowrap"}}>menu</span>}
 </button>
 <div style={{padding:8,flex:1,display:"flex",flexDirection:"column",gap:2}}>
-{[["🔔","notifications",onNotifs,uc],["🗺️","crew map",onMap,0],["📅","calendars",onSwitchCrew,0]].map(function(x){return(
+{[["🔔","notifications",onNotifs,uc],["🗺️","crew map",onMap,0],["📅","calendars",onSwitchCrew,0],["🌐","master view",onMaster,0]].map(function(x){return(
 <button key={x[1]} onClick={x[2]} style={{display:"flex",alignItems:"center",gap:10,padding:sideOpen?"10px 12px":"10px 14px",borderRadius:10,background:"none",border:"none",cursor:"pointer",width:"100%",textAlign:"left",position:"relative"}}>
 <span style={{fontSize:18,flexShrink:0,width:24,textAlign:"center"}}>{x[0]}</span>
 {sideOpen&&<span style={{fontSize:13,fontWeight:600,color:"#475569",whiteSpace:"nowrap"}}>{x[1]}</span>}
@@ -374,10 +360,8 @@ return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fa
 {/* MAIN CONTENT */}
 <div style={{flex:1,padding:"24px 16px",minWidth:0,overflowX:"hidden"}}><div style={{maxWidth:860,margin:"0 auto"}}>
 
-{/* Sandbox banner */}
 {SANDBOX&&<div style={{background:"#f59e0b",color:"#fff",textAlign:"center",padding:"6px 0",fontSize:12,fontWeight:700,borderRadius:8,marginBottom:12,letterSpacing:0.5}}>⚠ SANDBOX MODE</div>}
 
-{/* Crew header */}
 {crewInfo&&<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,padding:"10px 16px",background:"#fff",borderRadius:12,border:"1px solid #e2e8f0"}}>
 <div style={{display:"flex",alignItems:"center",gap:10}}>
 <span style={{fontSize:24}}>{crewInfo.icon||"🎯"}</span>
@@ -416,6 +400,7 @@ delete crew</button>}
 <button onClick={()=>{setMenu(false);onNotifs()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,display:"flex",alignItems:"center",justifyContent:"space-between"}}>notifications{uc>0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:10,padding:"2px 8px",fontSize:11,fontWeight:700}}>{uc}</span>}</button>
 <button onClick={()=>{setMenu(false);exportCal()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>export to calendar</button>
 <button onClick={()=>{setMenu(false);onMap()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>crew map</button>
+<button onClick={()=>{setMenu(false);onMaster()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>master view</button>
 <button onClick={()=>{setMenu(false);onSwitchCrew()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>switch crew</button>
 <button onClick={()=>{setMenu(false);onSettings()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>settings</button>
 <button onClick={()=>{setMenu(false);onFAQ()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>FAQ</button>
@@ -467,7 +452,6 @@ style={{fontSize:9,background:p.color+"20",color:p.color,borderRadius:4,padding:
 const chipC=myActSt==="accepted"?"#22c55e":myActSt==="declined"?"#94a3b8":myActSt==="raincheck"?"#f59e0b":c;
 return(
 <div key={a.id} onClick={e=>{e.stopPropagation();setVA(a);setARM(null);setARN("");setActRcDate("");setActRcTS("14:00");setActRcTE("17:00")}} style={{fontSize:9,background:chipC+"20",color:chipC,borderRadius:4,padding:"2px 4px",fontWeight:600,borderLeft:`3px solid ${chipC}`,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{myActSt==="accepted"?"✓":myActSt==="declined"?"✗":myActSt==="raincheck"?"⏳":"★"} {a.description.slice(0,12)}</div>)})}
-{/* Proposals on calendar */}
 {dP.map(pr=>{const sC=people.find(p=>p.name===pr.person)?.color||"#e040fb";const mySt=getMyStatus(pr);const stC=getStatusColor(mySt);
 return(<div key={pr.id} onClick={e=>{e.stopPropagation();setRM(pr);setRN("");setRCDate("");setRCTS("14:00");setRCTE("17:00");setRespMode(null);recordSeen(pr.id)}}
 style={{fontSize:9,background:mySt==="accepted"?"#22c55e20":mySt==="declined"?"#94a3b820":sC+"15",
@@ -553,7 +537,6 @@ return(<div key={pr.id} style={{padding:"14px 16px",marginBottom:10,background:c
 <div style={{fontSize:13,color:"#475569",marginTop:2}}>{dl} · {fTD(pT(pr.timeStart))} – {fTD(pT(pr.timeEnd))}</div>
 {pr.notes&&<div style={{fontSize:13,color:"#64748b",marginTop:4,fontStyle:"italic"}}>"{pr.notes}"</div>}
 {pr.location&&<div style={{fontSize:12,color:"#64748b",marginTop:2}}>📍 {pr.location}</div>}
-{/* Response summary */}
 {respEntries.length>0&&(<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:4}}>
 {respEntries.map(([name,r])=>{const pc=people.find(p=>p.name===name)?.color||"#94a3b8";
 return(<div key={name} style={{fontSize:12,display:"flex",alignItems:"center",gap:6}}>
@@ -563,11 +546,9 @@ return(<div key={name} style={{fontSize:12,display:"flex",alignItems:"center",ga
 {r.note&&<span style={{color:"#94a3b8",fontStyle:"italic"}}>— "{r.note}"</span>}
 {r.status==="raincheck"&&r.suggestedDate&&<span style={{color:"#f59e0b",fontSize:11}}> → {r.suggestedDate}</span>}
 </div>)})}</div>)}
-{/* Seen by */}
 {pr.seenBy&&Object.keys(pr.seenBy).length>0&&pr.person===myName&&(<div style={{marginTop:6,fontSize:11,color:"#94a3b8"}}>
 seen by: {Object.keys(pr.seenBy).map((n,i)=><span key={n} style={{color:people.find(p=>p.name===n)?.color||"#94a3b8",fontWeight:600}}>{i>0?", ":""}{n}</span>)}
 </div>)}
-{/* Show respond button if I'm a recipient and haven't responded */}
 {pr.person!==myName&&pr.sendTo?.includes(myName)&&(!resp[myName]||resp[myName].status==="pending")&&(
 <button onClick={()=>{setRM(pr);setRN("");setRCDate("");setRCTS("14:00");setRCTE("17:00");setRespMode(null);recordSeen(pr.id)}} style={{marginTop:10,padding:"8px 16px",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer",background:c,color:"#fff",border:"none"}}>respond</button>
 )}
@@ -619,7 +600,7 @@ return<><button onClick={()=>setAI(allSelected?[]:others.map(p=>p.name))} style=
 <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><button onClick={()=>setAMO(false)} style={{background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 18px",fontSize:14,cursor:"pointer"}}>cancel</button>
 <button onClick={saveAct} disabled={!adesc.trim()} style={{...bP,background:!adesc.trim()?"#cbd5e1":myColor,cursor:!adesc.trim()?"not-allowed":"pointer"}}>can we kick it</button></div></Modal>
 
-{/* ===== PROPOSAL RESPONSE MODAL ===== */}
+{/* PROPOSAL RESPONSE MODAL */}
 <Modal isOpen={respModal!==null} onClose={()=>setRM(null)}>
 {respModal&&(()=>{
 const pr=respModal;const sC=people.find(p=>p.name===pr.person)?.color||"#e040fb";
@@ -632,8 +613,6 @@ return(<>
 {pr.notes&&<div style={{fontSize:13,color:"#64748b",marginTop:4,fontStyle:"italic"}}>"{pr.notes}"</div>}
 {pr.location&&<div style={{fontSize:13,color:"#64748b",marginTop:4}}>📍 {pr.location}</div>}
 {pr.sendTo&&<div style={{fontSize:12,color:"#94a3b8",marginTop:6}}>sent to: {Array.isArray(pr.sendTo)?pr.sendTo.join(", "):pr.sendTo}</div>}
-
-{/* Show responses */}
 {pr.responses&&Object.entries(pr.responses).length>0&&(<div style={{marginTop:12,padding:"10px 14px",background:"#f8fafc",borderRadius:10}}>
 <div style={{fontSize:12,fontWeight:700,color:"#64748b",marginBottom:6}}>responses:</div>
 {Object.entries(pr.responses).map(([name,r])=>{const pc=people.find(p=>p.name===name)?.color||"#94a3b8";
@@ -644,30 +623,21 @@ return(<div key={name} style={{fontSize:13,marginBottom:4,display:"flex",alignIt
 {r.note&&<span style={{color:"#94a3b8",fontStyle:"italic"}}>— {r.note}</span>}
 {r.suggestedDate&&<span style={{color:"#f59e0b",fontSize:11}}> → {r.suggestedDate}</span>}
 </div>)})}</div>)}
-
-{/* Seen by */}
 {pr.seenBy&&Object.keys(pr.seenBy).length>0&&isSender&&(<div style={{marginTop:8,padding:"8px 14px",background:"#f0fdf4",borderRadius:10}}>
 <div style={{fontSize:11,fontWeight:600,color:"#94a3b8",marginBottom:4}}>seen by:</div>
 <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{Object.entries(pr.seenBy).map(([name,time])=>{const pc=people.find(p=>p.name===name)?.color||"#94a3b8";
 return(<span key={name} style={{fontSize:12,color:pc,fontWeight:600}}>{name}</span>)})}</div></div>)}
-
-{/* Response buttons if I'm a recipient */}
 {!isSender&&pr.sendTo?.includes(myName)&&!respMode&&(mySt==="pending")&&(
 <div style={{marginTop:16,display:"flex",flexDirection:"column",gap:8}}>
 <button onClick={()=>setRespMode("yes")} style={{padding:"12px 20px",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer",background:"#22c55e",color:"#fff",border:"none"}}>yes we can!</button>
 <button onClick={()=>setRespMode("no")} style={{padding:"12px 20px",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer",background:"#ef4444",color:"#fff",border:"none"}}>womp womp</button>
 <button onClick={()=>setRespMode("rc")} style={{padding:"12px 20px",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer",background:"#f59e0b",color:"#fff",border:"none"}}>raincheck?</button>
-</div>
-)}
-
-{/* Note + confirm for yes */}
+</div>)}
 {respMode==="yes"&&(<div style={{marginTop:16}}>
 <label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>add a note (optional)</label>
 <input value={respNote} onChange={e=>setRN(e.target.value)} placeholder="can't wait!" style={iS}/>
 <div style={{display:"flex",gap:10}}><button onClick={()=>setRespMode(null)} style={{background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 18px",fontSize:14,cursor:"pointer"}}>back</button>
 <button onClick={()=>respondProp(pr.id,"accepted",respNote)} style={{background:"#22c55e",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>confirm</button></div></div>)}
-
-{/* Note + confirm for womp womp */}
 {respMode==="no"&&(<div style={{marginTop:16}}>
 <label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>add a note (optional)</label>
 <input value={respNote} onChange={e=>setRN(e.target.value)} placeholder="sorry, can't make it..." style={iS}/>
@@ -676,8 +646,6 @@ return(<span key={name} style={{fontSize:12,color:pc,fontWeight:600}}>{name}</sp
 <button onClick={()=>{respondProp(pr.id,"declined",respNote)}} style={{background:"#ef4444",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>decline & keep on calendar</button>
 <button onClick={()=>{respondProp(pr.id,"declined",respNote);setTimeout(()=>hidePropFromCal(pr.id),500)}} style={{background:"#94a3b8",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>decline & remove from calendar</button>
 </div></div>)}
-
-{/* Raincheck with date suggestion */}
 {respMode==="rc"&&(<div style={{marginTop:16}}>
 <label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>suggest another day</label>
 <input type="date" value={rcDate} onChange={e=>setRCDate(e.target.value)} style={{...iS,marginBottom:8}}/>
@@ -688,8 +656,6 @@ return(<span key={name} style={{fontSize:12,color:pc,fontWeight:600}}>{name}</sp
 <input value={respNote} onChange={e=>setRN(e.target.value)} placeholder="how about next week instead?" style={iS}/>
 <div style={{display:"flex",gap:10}}><button onClick={()=>setRespMode(null)} style={{background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 18px",fontSize:14,cursor:"pointer"}}>back</button>
 <button onClick={()=>respondProp(pr.id,"raincheck",respNote,rcDate,rcTS,rcTE)} style={{background:"#f59e0b",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>suggest raincheck</button></div></div>)}
-
-{/* Already responded */}
 {mySt!=="pending"&&mySt!=="sent"&&!respMode&&(
 <div style={{marginTop:12,padding:"10px 14px",background:SC[mySt]+"15",borderRadius:10,display:"flex",alignItems:"center",gap:8}}>
 <div style={{width:10,height:10,borderRadius:"50%",background:SC[mySt]}}/>
@@ -698,12 +664,12 @@ return(<span key={name} style={{fontSize:12,color:pc,fontWeight:600}}>{name}</sp
 </>)})()}
 </Modal>
 
-{/* ===== ACTIVITY DETAIL MODAL ===== */}
+{/* ACTIVITY DETAIL MODAL */}
 <Modal isOpen={viewAct!==null} onClose={()=>setVA(null)}>
 {viewAct&&(()=>{
 const a=viewAct;const c=people.find(p=>p.name===a.person)?.color||"#e040fb";
 const[y,m,d]=a.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
-const isOwner=a.person===myName;const isInvited=Array.isArray(a.invite)?a.invite.includes(myName):false;
+const isOwner2=a.person===myName;const isInvited=Array.isArray(a.invite)?a.invite.includes(myName):false;
 const resp=a.responses||{};const myResp=resp[myName]?.status;
 return(<>
 <h3 style={{margin:"0 0 4px",fontSize:18,fontWeight:700,color:c}}>★ {a.description}</h3>
@@ -713,8 +679,6 @@ return(<>
 {a.location&&<div style={{fontSize:13,color:"#64748b",marginTop:4}}>📍 {a.location}</div>}
 {a.invite&&<div style={{fontSize:13,color:"#94a3b8",marginTop:6}}>invited: {Array.isArray(a.invite)?a.invite.join(", "):a.invite}</div>}
 </div>
-
-{/* Responses */}
 {Object.entries(resp).length>0&&(<div style={{marginTop:12,padding:"10px 14px",background:"#f8fafc",borderRadius:10}}>
 <div style={{fontSize:12,fontWeight:700,color:"#64748b",marginBottom:6}}>responses:</div>
 {Object.entries(resp).map(([name,r])=>{const pc=people.find(p=>p.name===name)?.color||"#94a3b8";
@@ -725,16 +689,12 @@ return(<div key={name} style={{fontSize:13,marginBottom:4,display:"flex",alignIt
 {r.note&&<span style={{color:"#94a3b8",fontStyle:"italic"}}>— "{r.note}"</span>}
 {r.suggestedDate&&<span style={{color:"#f59e0b",fontSize:11}}> → {r.suggestedDate}</span>}
 </div>)})}</div>)}
-
-{/* Response buttons */}
-{isInvited&&!isOwner&&!myResp&&!actRespMode&&(
+{isInvited&&!isOwner2&&!myResp&&!actRespMode&&(
 <div style={{marginTop:16,display:"flex",flexDirection:"column",gap:8}}>
 <button onClick={()=>setARM("yes")} style={{padding:"12px 20px",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer",background:"#22c55e",color:"#fff",border:"none"}}>yes we can!</button>
 <button onClick={()=>setARM("no")} style={{padding:"12px 20px",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer",background:"#ef4444",color:"#fff",border:"none"}}>womp womp</button>
 <button onClick={()=>setARM("rc")} style={{padding:"12px 20px",borderRadius:10,fontSize:14,fontWeight:700,cursor:"pointer",background:"#f59e0b",color:"#fff",border:"none"}}>raincheck?</button>
 </div>)}
-
-{/* Yes — note + confirm */}
 {actRespMode==="yes"&&(<div style={{marginTop:16}}>
 <label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>add a note (optional)</label>
 <input value={actRespNote} onChange={e=>setARN(e.target.value)} placeholder="can't wait!" style={iS}/>
@@ -743,8 +703,6 @@ return(<div key={name} style={{fontSize:13,marginBottom:4,display:"flex",alignIt
 <button onClick={()=>{respondAct(a.id,"accepted",actRespNote);setARN("");setARM(null)}}
 style={{padding:"10px 18px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",background:"#22c55e",color:"#fff",border:"none"}}>confirm</button>
 </div></div>)}
-
-{/* Womp womp — note + keep/remove */}
 {actRespMode==="no"&&(<div style={{marginTop:16}}>
 <label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>add a note (optional)</label>
 <input value={actRespNote} onChange={e=>setARN(e.target.value)} placeholder="sorry, can't make it..." style={iS}/>
@@ -755,8 +713,6 @@ style={{padding:"10px 18px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"p
 <button onClick={()=>{respondAct(a.id,"declined",actRespNote);setARN("");setARM(null);setTimeout(()=>hideActFromCal(a.id),500)}}
 style={{padding:"10px 18px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",background:"#94a3b8",color:"#fff",border:"none"}}>decline & remove from calendar</button>
 </div></div>)}
-
-{/* Raincheck — date + note */}
 {actRespMode==="rc"&&(<div style={{marginTop:16}}>
 <label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>suggest another day</label>
 <input type="date" value={actRcDate} onChange={e=>setActRcDate(e.target.value)} style={{...iS,marginBottom:8}}/>
@@ -770,8 +726,6 @@ style={{padding:"10px 18px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"p
 <button onClick={()=>{respondAct(a.id,"raincheck",actRespNote,actRcDate,actRcTS,actRcTE);setARN("");setARM(null);setActRcDate("");setActRcTS("14:00");setActRcTE("17:00")}}
 style={{padding:"10px 18px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"pointer",background:"#f59e0b",color:"#fff",border:"none"}}>suggest raincheck</button>
 </div></div>)}
-
-{/* Already responded */}
 {myResp&&!actRespMode&&(
 <div style={{marginTop:12,padding:"10px 14px",background:SC[myResp]+"15",borderRadius:10,display:"flex",alignItems:"center",gap:8}}>
 <div style={{width:10,height:10,borderRadius:"50%",background:SC[myResp]||"#94a3b8"}}/>
@@ -797,24 +751,20 @@ return()=>{aR.off();pR.off()}},[crewId]);
 
 useEffect(()=>{
 if(!mapRef.current||mapInst.current)return;
-const map=L.map(mapRef.current).setView([45.52,-122.68],11);// Portland default
+const map=L.map(mapRef.current).setView([45.52,-122.68],11);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:'© OpenStreetMap'}).addTo(map);
 mapInst.current=map;
 setTimeout(()=>map.invalidateSize(),100);
 return()=>{if(mapInst.current){mapInst.current.remove();mapInst.current=null}}},[]);
 
-// Add markers
 useEffect(()=>{
 if(!mapInst.current)return;
 const map=mapInst.current;
-// Clear old markers
 map.eachLayer(l=>{if(l instanceof L.Marker||l instanceof L.CircleMarker)map.removeLayer(l)});
 const bounds=[];const today=new Date();
 
-// Helper to create colored icon
 const makeIcon=(color)=>L.divIcon({className:"",html:`<div style="width:28px;height:28px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center"></div>`,iconSize:[28,28],iconAnchor:[14,14]});
 
-// Activities with coords
 acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);return new Date(y,m-1,d)>=today&&a.coords}).forEach(a=>{
 const c=people.find(p=>p.name===a.person)?.color||"#e040fb";
 const[y,m,d]=a.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
@@ -822,7 +772,6 @@ const mk=L.marker([a.coords.lat,a.coords.lng],{icon:makeIcon(c)}).addTo(map);
 mk.bindPopup(`<div style="font-family:'DM Sans',sans-serif;min-width:180px"><div style="font-weight:700;color:${c}">★ ${a.description}</div><div style="font-size:12px;color:#475569;margin-top:4px">${a.person} · ${dl}</div><div style="font-size:12px;color:#475569">${fTD(pT(a.timeStart))} – ${fTD(pT(a.timeEnd))}</div>${a.location?`<div style="font-size:12px;color:#64748b;margin-top:4px">📍 ${a.location}</div>`:""}</div>`);
 bounds.push([a.coords.lat,a.coords.lng])});
 
-// Proposals with coords
 props.filter(p=>{const[y,m,d]=p.date.split("-").map(Number);return new Date(y,m-1,d)>=today&&p.coords}).forEach(pr=>{
 const c=people.find(p=>p.name===pr.person)?.color||"#60a5fa";
 const[y,m,d]=pr.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
@@ -831,19 +780,16 @@ const mk=L.marker([pr.coords.lat,pr.coords.lng],{icon:makeIcon(c)}).addTo(map);
 mk.bindPopup(`<div style="font-family:'DM Sans',sans-serif;min-width:180px"><div style="font-weight:700;color:${c}">📩 ${pr.notes||"hangout"}</div><div style="font-size:12px;color:#475569;margin-top:4px">${pr.person} · ${dl}</div><div style="font-size:12px;color:#475569">${fTD(pT(pr.timeStart))} – ${fTD(pT(pr.timeEnd))}</div>${pr.location?`<div style="font-size:12px;color:#64748b;margin-top:4px">📍 ${pr.location}</div>`:""}<div style="font-size:11px;color:#22c55e;margin-top:4px">${accepted} confirmed</div></div>`);
 bounds.push([pr.coords.lat,pr.coords.lng])});
 
-// Friends' addresses (from allUsers)
 const adminProfile=Object.values(allUsers).find(u=>(u.email||"").toLowerCase()===ADMIN.toLowerCase());
 Object.values(allUsers).filter(u=>u.name&&u.address&&u.address.trim()).forEach(u=>{
-if(!isAdmin&&adminProfile&&u.name===adminProfile.name)return;// hide admin
+if(!isAdmin&&adminProfile&&u.name===adminProfile.name)return;
 const c=people.find(p=>p.name===u.name)?.color||"#94a3b8";
-// Geocode address async
 geocode(u.address).then(loc=>{if(loc&&mapInst.current){
 const mk=L.circleMarker([loc.lat,loc.lng],{radius:10,fillColor:c,color:"#fff",weight:2,opacity:1,fillOpacity:0.7}).addTo(mapInst.current);
 mk.bindPopup(`<div style="font-family:'DM Sans',sans-serif"><div style="font-weight:700;color:${c}">${u.name}</div><div style="font-size:12px;color:#94a3b8;margin-top:2px">📍 general area</div></div>`);
 bounds.push([loc.lat,loc.lng]);
 if(bounds.length>1)mapInst.current.fitBounds(bounds,{padding:[40,40]})}})});
 
-// Fit bounds
 if(bounds.length>1)setTimeout(()=>{if(mapInst.current)mapInst.current.fitBounds(bounds,{padding:[40,40]})},500);
 else if(bounds.length===1)setTimeout(()=>{if(mapInst.current)mapInst.current.setView(bounds[0],13)},500);
 setLoading(false);
@@ -854,14 +800,12 @@ return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fa
 <h1 style={{fontFamily:"'Nunito',sans-serif",fontSize:28,fontWeight:800,marginBottom:8,
 background:"linear-gradient(135deg,#e040fb,#4ECDC4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>crew map</h1>
 <p style={{color:"#94a3b8",fontSize:14,marginBottom:16}}>activities, proposals, and your crew's general areas</p>
-{/* Legend */}
 <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:16,fontSize:12,color:"#64748b"}}>
 <span>● colored circles = activities & proposals</span>
 <span>○ faded circles = friend areas</span>
 </div>
 <div ref={mapRef} style={{height:480,borderRadius:12,border:"1px solid #e2e8f0",boxShadow:"0 2px 8px rgba(0,0,0,0.08)",marginBottom:20,background:"#e2e8f0"}}/>
 {loading&&<p style={{color:"#94a3b8",fontSize:13,textAlign:"center"}}>loading map...</p>}
-{/* List below map */}
 <div style={{marginTop:8}}>
 {acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);return new Date(y,m-1,d)>=new Date()&&a.location}).length>0&&(<>
 <h3 style={{fontSize:16,fontWeight:700,marginBottom:8}}>upcoming activities with locations</h3>
@@ -900,7 +844,6 @@ return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justify
 <h2 style={{fontFamily:"'Nunito',sans-serif",fontSize:22,fontWeight:800,marginBottom:12,
 background:"linear-gradient(135deg,#e040fb,#60a5fa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{s.title}</h2>
 <p style={{color:"#475569",fontSize:15,lineHeight:1.6,marginBottom:28}}>{s.desc}</p>
-{/* Progress dots */}
 <div style={{display:"flex",justifyContent:"center",gap:8,marginBottom:24}}>
 {steps.map((_,i)=><div key={i} style={{width:i===step?24:8,height:8,borderRadius:4,background:i===step?"#e040fb":"#e2e8f0",transition:"all 0.3s"}}/>)}</div>
 <div style={{display:"flex",gap:10,justifyContent:"center"}}>
@@ -927,6 +870,7 @@ const faqs=[
 {q:"what are read receipts?",a:"when enabled (in settings), others can see that you've viewed their proposal. this helps the sender know who's seen it even if they haven't responded yet. you can turn this off anytime in settings for full privacy."},
 {q:"how do notifications work?",a:"you get in-app notifications when someone sends you a proposal, invites you to an activity, or responds to your proposal. check the hamburger menu for the notification badge. email and text notifications are coming soon."},
 {q:"can I change my name or color?",a:"yes — go to settings (hamburger menu → settings) to update your name, color, address, phone, and notification preferences."},
+{q:"what is the master view?",a:"the master view combines all your crews into one read-only calendar. you can see activities, proposals, and 'can we kick it' windows from every crew at a glance. tap any item to jump straight into that crew."},
 ];
 const[open,setOpen]=useState(null);
 return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fafc",minHeight:"100vh",color:"#1e293b",padding:"24px 16px"}}><div style={{maxWidth:600,margin:"0 auto"}}>
@@ -949,7 +893,6 @@ const crewId=Date.now()+"_"+Math.random().toString(36).slice(2,8);
 const crewData={name:name.trim(),icon,owner:user.uid,createdAt:Date.now()};
 await db.ref(P(`crews/${crewId}/info`)).set(crewData);
 await db.ref(P(`crews/${crewId}/members/${user.uid}`)).set({name:profile.name,color:profile.color,email:profile.email,uid:user.uid});
-// Add crew to user's crew list
 const snap=await db.ref(P(`users/${user.uid}/crews`)).once("value");
 const existing=snap.val()||{};existing[crewId]=true;
 await db.ref(P(`users/${user.uid}/crews`)).set(existing);
@@ -973,9 +916,8 @@ border:icon===ic?"2px solid #e040fb":"2px solid #e2e8f0",background:icon===ic?"#
 </div></div>)}
 
 /* ===== CREW SELECTOR ===== */
-function CrewSelector({user,profile,crews,onSelect,onCreate}){
+function CrewSelector({user,profile,crews,onSelect,onCreate,onMaster}){
 const[invites,setInvites]=useState([]);
-// Load pending invites
 useEffect(()=>{if(!profile?.email)return;
 const r=db.ref(P("crewInvites")).orderByChild("email").equalTo(profile.email.toLowerCase());
 r.on("value",s=>{const d=s.val();setInvites(d?Object.entries(d).map(([k,v])=>({...v,key:k})):[])}); return()=>r.off()},[profile?.email]);
@@ -992,7 +934,6 @@ return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justify
 <h2 style={{fontFamily:"'Nunito',sans-serif",fontSize:24,fontWeight:800,background:"linear-gradient(135deg,#e040fb,#60a5fa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>your crews</h2>
 <p style={{color:"#94a3b8",fontSize:13,marginTop:4}}>pick a crew calendar or start a new one</p></div>
 
-{/* Pending invites */}
 {invites.length>0&&(<div style={{marginBottom:20}}>
 <div style={{fontSize:12,fontWeight:700,color:"#f59e0b",textTransform:"uppercase",letterSpacing:0.5,marginBottom:8}}>pending invites</div>
 {invites.map(inv=>(<div key={inv.key} style={{background:"#fff",borderRadius:12,border:"2px solid #f59e0b",padding:"14px 16px",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
@@ -1001,7 +942,15 @@ return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justify
 <button onClick={()=>acceptInvite(inv)} style={{background:"#22c55e",color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>join</button>
 </div>))}</div>)}
 
-{/* Existing crews */}
+{/* Master view button */}
+{crews.length>1&&<button onClick={onMaster} style={{width:"100%",marginBottom:16,padding:"16px 20px",borderRadius:12,
+background:"linear-gradient(135deg,#e040fb08,#60a5fa08)",border:"2px solid #e040fb30",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12,transition:"border-color 0.15s"}}
+onMouseEnter={e=>e.currentTarget.style.borderColor="#e040fb"} onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(224,64,251,0.2)"}>
+<span style={{fontSize:28}}>🌐</span>
+<div><div style={{fontSize:16,fontWeight:700,background:"linear-gradient(135deg,#e040fb,#60a5fa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>master view</div>
+<div style={{fontSize:12,color:"#94a3b8"}}>all crews in one calendar</div></div>
+</button>}
+
 <div style={{display:"flex",flexDirection:"column",gap:8}}>
 {crews.map(c=>(<button key={c.id} onClick={()=>onSelect(c.id)}
 style={{background:"#fff",borderRadius:12,border:"1px solid #e2e8f0",padding:"16px 20px",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12,boxShadow:"0 1px 3px rgba(0,0,0,0.04)",transition:"border-color 0.15s"}}
@@ -1035,6 +984,203 @@ return(<Modal isOpen={isOpen} onClose={onClose}>
 <button onClick={send} style={{background:"#e040fb",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>send invite</button>
 </div></Modal>)}
 
+/* ===== MASTER CALENDAR ===== */
+function MasterCalendar({user,profile,allUsers,userCrews,onSelectCrew,onBack}){
+const today=new Date();
+const[cM,setCM]=useState(today.getMonth());const[cY,setCY]=useState(today.getFullYear());
+const[crewData,setCrewData]=useState({});
+const[loading,setLoading]=useState(true);
+const myName=profile?.name||"";
+const isAdmin=(profile?.email||"").toLowerCase()===ADMIN.toLowerCase();
+
+// Assign each crew a distinct gradient color
+const CREW_COLORS=["#e040fb","#60a5fa","#4ecdc4","#f59e0b","#ef4444","#a78bfa","#22c55e","#f472b6"];
+
+// Load data for all crews
+useEffect(()=>{
+const refs=[];
+const crewIds=(userCrews||[]).map(c=>c.id);
+crewIds.forEach(cid=>{
+const aR=db.ref(CP(cid,"activities"));
+const pR=db.ref(CP(cid,"proposals"));
+const bR=db.ref(CP(cid,"busyTimes"));
+const mR=db.ref(CP(cid,"members"));
+const handler=(type)=>(s)=>{
+setCrewData(prev=>{const next={...prev};if(!next[cid])next[cid]={acts:[],props:[],bt:{},members:[]};
+if(type==="acts")next[cid].acts=s.val()?Object.values(s.val()):[];
+if(type==="props")next[cid].props=s.val()?Object.values(s.val()):[];
+if(type==="bt")next[cid].bt=s.val()||{};
+if(type==="members")next[cid].members=Object.values(s.val()||{}).filter(u=>u.name&&u.color).map(u=>({name:u.name,color:u.color}));
+return next})};
+aR.on("value",handler("acts"));pR.on("value",handler("props"));bR.on("value",handler("bt"));mR.on("value",handler("members"));
+refs.push(aR,pR,bR,mR)});
+setTimeout(()=>setLoading(false),800);
+return()=>refs.forEach(r=>r.off())},[userCrews]);
+
+const dIM=gDIM(cY,cM),fDay=gFDOM(cY,cM);
+const cDays=useMemo(()=>{const d=[];for(let i=0;i<fDay;i++)d.push(null);for(let i=1;i<=dIM;i++)d.push(i);return d},[fDay,dIM]);
+
+const prevM=()=>{if(cM===0){setCM(11);setCY(cY-1)}else setCM(cM-1)};
+const nextM=()=>{if(cM===11){setCM(0);setCY(cY+1)}else setCM(cM+1)};
+
+// Build per-day items from all crews
+const getDayItems=(day)=>{
+const dk=fD(cY,cM,day);const items=[];
+(userCrews||[]).forEach((crew,ci)=>{
+const cd=crewData[crew.id];if(!cd)return;
+const cc=CREW_COLORS[ci%CREW_COLORS.length];
+// Activities
+cd.acts.filter(a=>a.date===dk).forEach(a=>{
+items.push({type:"act",crew,crewColor:cc,data:a,label:a.description,person:a.person,
+personColor:cd.members.find(m=>m.name===a.person)?.color||cc})});
+// Proposals
+cd.props.filter(p=>{
+if(p.date!==dk)return false;
+if(p.person===myName)return true;
+const r=p.responses?.[myName];if(!r)return p.sendTo?.includes(myName);
+if(r.hidden)return false;return true;
+}).forEach(p=>{
+items.push({type:"prop",crew,crewColor:cc,data:p,label:p.notes||"hangout",person:p.person,
+personColor:cd.members.find(m=>m.name===p.person)?.color||cc})});
+});return items};
+
+// Compute "can we kick it" windows per crew
+const getCrewOverlaps=(day)=>{
+const dk=fD(cY,cM,day);const overlaps=[];
+(userCrews||[]).forEach((crew,ci)=>{
+const cd=crewData[crew.id];if(!cd)return;
+const cc=CREW_COLORS[ci%CREW_COLORS.length];
+const people=cd.members;const bt=cd.bt;
+if(people.length<2||!myName)return;
+const myE=bt[myName]?.[dk]||[];if(!myE.length)return;
+const others=people.filter(p=>p.name!==myName);
+const twE=others.filter(p=>(bt[p.name]?.[dk]||[]).length>0);if(!twE.length)return;
+const pts=new Set([DS,DE]);[myName,...twE.map(p=>p.name)].forEach(n=>(bt[n]?.[dk]||[]).forEach(e=>{const s=pT(e.start),en=pT(e.end);if(s>DS&&s<DE)pts.add(s);if(en>DS&&en<DE)pts.add(en)}));
+const sorted=[...pts].sort((a,b)=>a-b);const isA=(n,mid)=>(bt[n]?.[dk]||[]).some(e=>{const s=pT(e.start),en=pT(e.end);return s<=mid&&en>mid});
+const fi=[];for(let i=0;i<sorted.length-1;i++){const st=sorted[i],en=sorted[i+1],mid=(st+en)/2;if(!isA(myName,mid))continue;if(twE.some(p=>isA(p.name,mid)))fi.push({start:st,end:en})}
+const mg=[];for(const iv of fi){if(mg.length&&mg[mg.length-1].end===iv.start)mg[mg.length-1].end=iv.end;else mg.push({...iv})}
+const th=mg.reduce((s,x)=>s+(x.end-x.start),0);
+if(th>=3)overlaps.push({crew,crewColor:cc,slots:mg,totalHrs:th})});
+return overlaps};
+
+// All upcoming overlap days
+const allOverlaps=useMemo(()=>{
+const result=[];
+for(let d=1;d<=dIM;d++){
+if(new Date(cY,cM,d)<new Date(today.getFullYear(),today.getMonth(),today.getDate()))continue;
+const ov=getCrewOverlaps(d);if(ov.length>0)result.push({day:d,overlaps:ov})}
+return result},[crewData,cM,cY,dIM,userCrews,myName]);
+
+const sS={background:"#fff",borderRadius:16,border:"1px solid #e2e8f0",padding:22,marginBottom:24,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"};
+
+return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fafc",minHeight:"100vh",color:"#1e293b",padding:"24px 16px"}}><div style={{maxWidth:860,margin:"0 auto"}}>
+<button onClick={onBack} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:14,fontWeight:600,marginBottom:20}}>‹ back</button>
+
+<div style={{textAlign:"center",marginBottom:24}}>
+<h1 style={{fontFamily:"'Nunito',sans-serif",fontSize:28,fontWeight:800,marginBottom:4,
+background:"linear-gradient(135deg,#e040fb,#60a5fa,#4ecdc4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>master view</h1>
+<p style={{color:"#94a3b8",fontSize:13}}>all your crews, one calendar</p>
+</div>
+
+{/* Crew legend */}
+<div style={{...sS,padding:"14px 22px"}}>
+<label style={{fontSize:12,fontWeight:600,color:"#94a3b8",marginBottom:8,display:"block"}}>your crews</label>
+<div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{(userCrews||[]).map((c,ci)=>{
+const cc=CREW_COLORS[ci%CREW_COLORS.length];
+return(<button key={c.id} onClick={()=>onSelectCrew(c.id)} style={{display:"flex",alignItems:"center",gap:6,background:cc+"10",borderRadius:20,padding:"5px 14px",border:`2px solid ${cc}`,cursor:"pointer"}}>
+<span style={{fontSize:14}}>{c.icon||"🎯"}</span><span style={{fontSize:13,fontWeight:600,color:cc}}>{c.name}</span>
+</button>)})}</div></div>
+
+{/* Month nav */}
+<div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+<button onClick={prevM} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,color:"#1e293b",padding:"8px 16px",cursor:"pointer",fontSize:18}}>‹</button>
+<h2 style={{fontSize:20,fontWeight:700,margin:0}}>{MN[cM]} {cY}</h2>
+<button onClick={nextM} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,color:"#1e293b",padding:"8px 16px",cursor:"pointer",fontSize:18}}>›</button></div>
+
+{loading?<div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:14}}>loading all crews...</div>:(<>
+{/* Calendar grid */}
+<div style={{...sS,padding:16}}>
+<div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:2}}>{DOW.map(d=><div key={d} style={{textAlign:"center",fontSize:11,fontWeight:700,color:"#94a3b8",padding:"8px 0",textTransform:"uppercase",letterSpacing:1}}>{d}</div>)}</div>
+<div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
+{cDays.map((day,i)=>{if(day===null)return<div key={`e-${i}`}/>;
+const isT=day===today.getDate()&&cM===today.getMonth()&&cY===today.getFullYear();
+const isPast=new Date(cY,cM,day)<new Date(today.getFullYear(),today.getMonth(),today.getDate());
+const items=getDayItems(day);
+const overlaps=getCrewOverlaps(day);
+const hasOverlap=overlaps.length>0;
+
+return(<div key={day} style={{minHeight:72,borderRadius:10,padding:"6px 8px",
+background:isT?"rgba(224,64,251,0.06)":isPast?"#f8fafc":"#fff",opacity:isPast?0.5:1,
+border:hasOverlap&&!isPast?"2px solid #e040fb":isT?"1.5px solid rgba(224,64,251,0.35)":"1px solid #f1f5f9",cursor:"default",transition:"background 0.15s"}}>
+<div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+<span style={{fontSize:13,fontWeight:isT?700:500,color:isT?"#e040fb":isPast?"#cbd5e1":"#475569"}}>{day}</span>
+{hasOverlap&&!isPast&&<span style={{fontSize:8,color:"#e040fb",fontWeight:700}}>●</span>}
+</div>
+<div style={{display:"flex",flexDirection:"column",gap:2,marginTop:3}}>
+{items.slice(0,3).map((item,idx)=>{
+const isAct=item.type==="act";
+return(<div key={idx} onClick={()=>onSelectCrew(item.crew.id)}
+style={{fontSize:8,background:item.crewColor+"18",color:item.crewColor,borderRadius:4,padding:"2px 4px",fontWeight:600,
+borderLeft:`3px ${isAct?"solid":"dashed"} ${item.crewColor}`,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+{item.crew.icon||"🎯"} {isAct?"★":""} {item.label.slice(0,10)}</div>)})}
+{items.length>3&&<div style={{fontSize:8,color:"#94a3b8",fontWeight:600,paddingLeft:4}}>+{items.length-3} more</div>}
+{overlaps.map((ov,idx)=>(
+<div key={`ov-${idx}`} onClick={()=>onSelectCrew(ov.crew.id)}
+style={{fontSize:8,background:"linear-gradient(135deg,#e040fb15,#60a5fa15)",color:"#e040fb",borderRadius:4,padding:"2px 4px",fontWeight:700,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+{ov.crew.icon} {ov.totalHrs.toFixed(0)}h free</div>))}
+</div></div>)})}
+</div></div>
+
+{/* Upcoming overlap days */}
+<div style={sS}>
+<h2 style={{fontSize:20,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",background:"linear-gradient(135deg,#e040fb,#60a5fa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>can we kick it? — all crews</h2>
+<p style={{color:"#94a3b8",fontSize:12,margin:"0 0 14px"}}>days with 3+ hours of overlap across any crew</p>
+{allOverlaps.length===0?<p style={{color:"#94a3b8",fontSize:14,fontStyle:"italic"}}>no overlap days this month</p>:
+<ul style={{listStyle:"none",padding:0,margin:0}}>{allOverlaps.map(({day,overlaps})=>{
+const dn=new Date(cY,cM,day).toLocaleDateString("en-US",{weekday:"long"});
+return(<li key={day} style={{padding:"14px 16px",marginBottom:8,background:"rgba(224,64,251,0.04)",borderRadius:12,borderLeft:"4px solid #e040fb"}}>
+<div style={{fontWeight:700,fontSize:14,marginBottom:8}}>{dn}, {MN[cM]} {day}</div>
+{overlaps.map((ov,idx)=>(
+<div key={idx} onClick={()=>onSelectCrew(ov.crew.id)}
+style={{padding:"8px 12px",marginBottom:4,background:ov.crewColor+"10",borderRadius:8,borderLeft:`3px solid ${ov.crewColor}`,cursor:"pointer"}}>
+<div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+<span style={{fontSize:14}}>{ov.crew.icon||"🎯"}</span>
+<span style={{fontSize:13,fontWeight:700,color:ov.crewColor}}>{ov.crew.name}</span>
+<span style={{fontSize:12,color:"#94a3b8",marginLeft:"auto"}}>{ov.totalHrs.toFixed(1)} hrs</span></div>
+{ov.slots.map((s,si)=><div key={si} style={{fontSize:12,color:"#64748b",marginLeft:26}}>• {fTD(s.start)} – {fTD(s.end)}</div>)}
+<div style={{fontSize:11,color:ov.crewColor,marginTop:4,marginLeft:26}}>tap to open crew →</div>
+</div>))}
+</li>)})}</ul>}
+</div>
+
+{/* Upcoming activities across all crews */}
+<div style={sS}>
+<h2 style={{fontSize:20,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",color:"#f59e0b"}}>what's happening — all crews</h2>
+<p style={{color:"#94a3b8",fontSize:12,margin:"0 0 14px"}}>upcoming activities across every crew</p>
+{(()=>{const allActs=[];
+(userCrews||[]).forEach((crew,ci)=>{
+const cd=crewData[crew.id];if(!cd)return;
+const cc=CREW_COLORS[ci%CREW_COLORS.length];
+cd.acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);return new Date(y,m-1,d)>=today}).forEach(a=>{
+allActs.push({...a,crewName:crew.name,crewIcon:crew.icon||"🎯",crewId:crew.id,crewColor:cc,
+personColor:cd.members.find(m=>m.name===a.person)?.color||cc})})});
+allActs.sort((a,b)=>a.date.localeCompare(b.date));
+return!allActs.length?<p style={{color:"#94a3b8",fontSize:14,fontStyle:"italic"}}>no upcoming activities</p>:
+allActs.map(a=>{const[y,m,d]=a.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+return(<div key={`${a.crewId}-${a.id}`} onClick={()=>onSelectCrew(a.crewId)}
+style={{padding:"12px 16px",marginBottom:6,background:a.crewColor+"08",borderRadius:10,borderLeft:`4px solid ${a.crewColor}`,cursor:"pointer"}}>
+<div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+<span style={{fontSize:12}}>{a.crewIcon}</span>
+<span style={{fontSize:11,fontWeight:700,color:a.crewColor}}>{a.crewName}</span></div>
+<div style={{fontWeight:700,fontSize:14,color:a.personColor||a.crewColor}}>{a.person}</div>
+<div style={{fontSize:12,color:"#475569"}}>{dl} · {fTD(pT(a.timeStart))} – {fTD(pT(a.timeEnd))}</div>
+<div style={{fontSize:13,color:"#1e293b",marginTop:2,fontWeight:600}}>★ {a.description}</div>
+{a.location&&<div style={{fontSize:11,color:"#64748b",marginTop:2}}>📍 {a.location}</div>}
+<div style={{fontSize:10,color:a.crewColor,marginTop:4}}>tap to open crew →</div>
+</div>)})})()}</div>
+</>)}
+</div></div>)}
+
 /* ===== APP ===== */
 function App(){
 const[page,setPage]=useState("loading");const[user,setUser]=useState(null);const[profile,setProfile]=useState(null);const[allUsers,setAU]=useState({});const[people,setPpl]=useState([]);
@@ -1042,33 +1188,26 @@ const[openPropId,setOPI]=useState(null);const[openActId,setOAI]=useState(null);
 const[crewId,setCrewId]=useState(null);const[crewInfo,setCrewInfo]=useState(null);const[userCrews,setUC]=useState([]);
 const[inviteOpen,setInviteOpen]=useState(false);
 
-// Load all users
 useEffect(()=>{db.ref(P("users")).on("value",s=>setAU(s.val()||{}))},[]);
 
-// Load crew info when crewId changes
 useEffect(()=>{if(!crewId){setCrewInfo(null);return}
 const r=db.ref(P(`crews/${crewId}/info`));r.on("value",s=>setCrewInfo(s.val()));return()=>r.off()},[crewId]);
 
-// Auth + load user crews
 useEffect(()=>{const unsub=au.onAuthStateChanged(u=>{if(u){setUser(u);
 db.ref(P(`users/${u.uid}`)).on("value",async s=>{const p=s.val();
 if(p){setProfile(p);
-// Load user's crews
 const crewSnap=await db.ref(P(`users/${u.uid}/crews`)).once("value");
 const crewIds=crewSnap.val()?Object.keys(crewSnap.val()):[];
-// Load crew details
 const crewList=[];for(let ci=0;ci<crewIds.length;ci++){const cid=crewIds[ci];
 const infoSnap=await db.ref(P(`crews/${cid}/info`)).once("value");
 const memSnap=await db.ref(P(`crews/${cid}/members`)).once("value");
 const info=infoSnap.val();if(info)crewList.push({id:cid,...info,memberCount:memSnap.val()?Object.keys(memSnap.val()).length:0})}
 setUC(crewList);
 
-// Auto-migration: if user has no crews, create one from existing data
 if(crewList.length===0){
 const migId="crew_"+Date.now()+"_"+Math.random().toString(36).slice(2,6);
 await db.ref(P(`crews/${migId}/info`)).set({name:p.name+"'s crew",icon:"🎯",owner:u.uid,createdAt:Date.now()});
 await db.ref(P(`crews/${migId}/members/${u.uid}`)).set({name:p.name,color:p.color,email:p.email,uid:u.uid});
-// Copy existing flat data into crew
 const[btS,actS,propS,tpS]=await Promise.all([
 db.ref(P("busyTimes")).once("value"),db.ref(P("activities")).once("value"),
 db.ref(P("proposals")).once("value"),db.ref(P("testPeople")).once("value")]);
@@ -1076,17 +1215,14 @@ if(btS.val())await db.ref(P(`crews/${migId}/busyTimes`)).set(btS.val());
 if(actS.val())await db.ref(P(`crews/${migId}/activities`)).set(actS.val());
 if(propS.val())await db.ref(P(`crews/${migId}/proposals`)).set(propS.val());
 if(tpS.val()){await db.ref(P(`crews/${migId}/testPeople`)).set(tpS.val());
-// Also add test people as members
 const tps=Object.values(tpS.val());
 for(const tp of tps){const tpId="tp_"+tp.name.replace(/\s/g,"_");
 await db.ref(P(`crews/${migId}/members/${tpId}`)).set({name:tp.name,color:tp.color})}}
-// Add existing real users as members too
 const allU=await db.ref(P("users")).once("value");const allUV=allU.val()||{};
 const allUEntries=Object.entries(allUV);
 for(let ei=0;ei<allUEntries.length;ei++){const uid=allUEntries[ei][0];const uData=allUEntries[ei][1];
 if(uid!==u.uid&&uData.name&&uData.color){
 await db.ref(P(`crews/${migId}/members/${uid}`)).set({name:uData.name,color:uData.color,email:uData.email||"",uid});
-// Add crew to their profile too
 const theirCrews=await db.ref(P(`users/${uid}/crews`)).once("value");
 const tc=theirCrews.val()||{};tc[migId]=true;
 await db.ref(P(`users/${uid}/crews`)).set(tc)}}
@@ -1105,27 +1241,22 @@ else setPage("auth")
 
 const selectCrew=(id)=>{setCrewId(id);setPage("app")};
 const archiveCrew=async()=>{if(!crewId||!user)return;
-// Remove crew from user's list but keep data
 const snap=await db.ref(P(`users/${user.uid}/crews`)).once("value");
 const existing=snap.val()||{};delete existing[crewId];
 await db.ref(P(`users/${user.uid}/crews`)).set(Object.keys(existing).length?existing:null);
-// Track archived crews
 const arcSnap=await db.ref(P(`users/${user.uid}/archivedCrews`)).once("value");
 const arc=arcSnap.val()||{};arc[crewId]=true;
 await db.ref(P(`users/${user.uid}/archivedCrews`)).set(arc);
 setCrewId(null);setUC(prev=>prev.filter(c=>c.id!==crewId));setPage("crews")};
 const deleteCrew=async()=>{if(!crewId||!user||!crewInfo)return;
-if(crewInfo.owner!==user.uid)return;// only owner can delete
-// Remove crew data entirely
+if(crewInfo.owner!==user.uid)return;
 await db.ref(P(`crews/${crewId}`)).remove();
-// Remove from all members' crew lists
 const memSnap=await db.ref(P(`crews/${crewId}/members`)).once("value");
 const mems=memSnap.val()||{};
 for(const uid of Object.keys(mems)){
 const uSnap=await db.ref(P(`users/${uid}/crews`)).once("value");
 const uc2=uSnap.val()||{};delete uc2[crewId];
 await db.ref(P(`users/${uid}/crews`)).set(Object.keys(uc2).length?uc2:null)}
-// Remove from own list
 const snap=await db.ref(P(`users/${user.uid}/crews`)).once("value");
 const existing=snap.val()||{};delete existing[crewId];
 await db.ref(P(`users/${user.uid}/crews`)).set(Object.keys(existing).length?existing:null);
@@ -1135,13 +1266,14 @@ if(page==="loading")return<div style={{minHeight:"100vh",display:"flex",alignIte
 if(page==="landing")return<Landing onEnter={()=>setPage("auth")}/>;
 if(page==="auth")return<Auth onAuth={u=>setUser(u)}/>;
 if(page==="onboarding"&&user)return<Onboarding user={user} onDone={()=>setPage(userCrews.length>1?"crews":"app")}/>;
-if(page==="crews"&&profile)return<CrewSelector user={user} profile={profile} crews={userCrews} onSelect={selectCrew} onCreate={()=>setPage("createCrew")}/>;
+if(page==="crews"&&profile)return<CrewSelector user={user} profile={profile} crews={userCrews} onSelect={selectCrew} onCreate={()=>setPage("createCrew")} onMaster={()=>setPage("master")}/>;
 if(page==="createCrew"&&profile)return<CreateCrew user={user} profile={profile} onCreated={(id)=>{setCrewId(id);setPage("app")}} onCancel={userCrews.length?()=>setPage("crews"):null}/>;
 if(page==="settings"&&profile)return<Settings user={user} profile={profile} allUsers={allUsers} crewId={crewId} onBack={()=>setPage("app")}/>;
 if(page==="notifications"&&profile)return<Notifs user={user} people={people} profile={profile} onBack={()=>setPage("app")} onViewProposal={(id)=>{setOPI(id);setPage("app")}} onViewActivity={(id)=>{setOAI(id);setPage("app")}}/>;
 if(page==="faq")return<FAQ onBack={()=>setPage("app")}/>;
 if(page==="map"&&profile&&crewId)return<MapPage user={user} profile={profile} allUsers={allUsers} people={people} crewId={crewId} onBack={()=>setPage("app")}/>;
-if(page==="app"&&profile&&crewId)return<><Main user={user} profile={profile} allUsers={allUsers} crewId={crewId} crewInfo={crewInfo} userCrews={userCrews} onSettings={()=>setPage("settings")} onNotifs={()=>setPage("notifications")} onFAQ={()=>setPage("faq")} onMap={()=>setPage("map")} onSwitchCrew={()=>setPage("crews")} onSelectCrew={selectCrew} onInvite={()=>setInviteOpen(true)} onArchiveCrew={archiveCrew} onDeleteCrew={deleteCrew} openProposalId={openPropId} clearOpenProposal={()=>setOPI(null)} openActId={openActId} clearOpenAct={()=>setOAI(null)}/>
+if(page==="master"&&profile)return<MasterCalendar user={user} profile={profile} allUsers={allUsers} userCrews={userCrews} onSelectCrew={selectCrew} onBack={()=>setPage(crewId?"app":"crews")}/>;
+if(page==="app"&&profile&&crewId)return<><Main user={user} profile={profile} allUsers={allUsers} crewId={crewId} crewInfo={crewInfo} userCrews={userCrews} onSettings={()=>setPage("settings")} onNotifs={()=>setPage("notifications")} onFAQ={()=>setPage("faq")} onMap={()=>setPage("map")} onSwitchCrew={()=>setPage("crews")} onSelectCrew={selectCrew} onInvite={()=>setInviteOpen(true)} onArchiveCrew={archiveCrew} onDeleteCrew={deleteCrew} onMaster={()=>setPage("master")} openProposalId={openPropId} clearOpenProposal={()=>setOPI(null)} openActId={openActId} clearOpenAct={()=>setOAI(null)}/>
 <InviteModal isOpen={inviteOpen} onClose={()=>setInviteOpen(false)} crewId={crewId} crewInfo={crewInfo} user={user} profile={profile}/></>;
 return null}
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
