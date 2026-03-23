@@ -1202,12 +1202,13 @@ return result},[crewData,cM,cY,dIM,userCrews,myName]);
 const sS={background:"#fff",borderRadius:16,border:"1px solid #e2e8f0",padding:22,marginBottom:24,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"};
 
 return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fafc",minHeight:"100vh",color:"#1e293b",padding:"24px 16px"}}><div style={{maxWidth:860,margin:"0 auto"}}>
-<button onClick={onBack} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:14,fontWeight:600,marginBottom:20}}>‹ back</button>
 
 <div style={{textAlign:"center",marginBottom:24}}>
+<img src="can_we_kick_it_transp.png" alt="logo" onClick={()=>window.scrollTo({top:0,behavior:"smooth"})} style={{height:60,objectFit:"contain",cursor:"pointer",marginBottom:8}}/>
 <h1 style={{fontFamily:"'Nunito',sans-serif",fontSize:28,fontWeight:800,marginBottom:4,
 background:"linear-gradient(135deg,#e040fb,#60a5fa,#4ecdc4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>master view</h1>
 <p style={{color:"#94a3b8",fontSize:13}}>all your crews, one calendar</p>
+<button onClick={onBack} style={{marginTop:10,background:"none",border:"1px solid #e2e8f0",borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:600,color:"#64748b",cursor:"pointer"}}>📅 your crews</button>
 </div>
 
 {/* Crew legend */}
@@ -1420,13 +1421,13 @@ const tc=theirCrews.val()||{};tc[migId]=true;
 await db.ref(P(`users/${uid}/crews`)).set(tc)}}
 await db.ref(P(`users/${u.uid}/crews`)).set({[migId]:true});
 setCrewId(migId);setUC([{id:migId,name:p.name+"'s crew",icon:"🎯",owner:u.uid,memberCount:1}]);
-setPage(pg=>pg==="loading"||pg==="auth"?"app":pg)
+setPage(pg=>pg==="loading"||pg==="auth"?"master":pg)
 }else if(crewList.length===1){setCrewId(crewList[0].id);
-setPage(pg=>{if(pg==="loading"||pg==="auth")return p.hasSeenOnboarding===false?"onboarding":"app";return pg})
-}else{setPage(pg=>{if(pg==="loading"||pg==="auth")return "crews";return pg})}
+setPage(pg=>{if(pg==="loading"||pg==="auth")return p.hasSeenOnboarding===false?"onboarding":"master";return pg})
+}else{setCrewId(crewList[0].id);setPage(pg=>{if(pg==="loading"||pg==="auth")return p.hasSeenOnboarding===false?"onboarding":"master";return pg})}
 }else if(SANDBOX){
 const prod=await db.ref(`users/${u.uid}`).once("value");const pp=prod.val();
-if(pp){await db.ref(P(`users/${u.uid}`)).set({...pp,hasSeenOnboarding:true});setProfile(pp);setPage("crews")}
+if(pp){await db.ref(P(`users/${u.uid}`)).set({...pp,hasSeenOnboarding:true});setProfile(pp);setPage("master")}
 else setPage("auth")
 }else setPage("auth")});
 }else{setUser(null);setProfile(null);setCrewId(null);setPage("landing")}});return()=>unsub()},[]);
@@ -1439,7 +1440,7 @@ await db.ref(P(`users/${user.uid}/crews`)).set(Object.keys(existing).length?exis
 const arcSnap=await db.ref(P(`users/${user.uid}/archivedCrews`)).once("value");
 const arc=arcSnap.val()||{};arc[crewId]=true;
 await db.ref(P(`users/${user.uid}/archivedCrews`)).set(arc);
-setCrewId(null);setUC(prev=>prev.filter(c=>c.id!==crewId));setPage("crews")};
+setCrewId(null);setUC(prev=>prev.filter(c=>c.id!==crewId));setPage("master")};
 const deleteCrew=async()=>{if(!crewId||!user||!crewInfo)return;
 if(crewInfo.owner!==user.uid)return;
 await db.ref(P(`crews/${crewId}`)).remove();
@@ -1452,19 +1453,19 @@ await db.ref(P(`users/${uid}/crews`)).set(Object.keys(uc2).length?uc2:null)}
 const snap=await db.ref(P(`users/${user.uid}/crews`)).once("value");
 const existing=snap.val()||{};delete existing[crewId];
 await db.ref(P(`users/${user.uid}/crews`)).set(Object.keys(existing).length?existing:null);
-setCrewId(null);setUC(prev=>prev.filter(c=>c.id!==crewId));setPage("crews")};
+setCrewId(null);setUC(prev=>prev.filter(c=>c.id!==crewId));setPage("master")};
 
 if(page==="loading")return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0a0a0a"}}><p style={{color:"#475569",fontSize:16,fontFamily:"'DM Sans',sans-serif"}}>loading...</p></div>;
 if(page==="landing")return<Landing onEnter={()=>setPage("auth")}/>;
 if(page==="auth")return<Auth onAuth={u=>setUser(u)}/>;
-if(page==="onboarding"&&user)return<Onboarding user={user} onDone={()=>setPage(userCrews.length>1?"crews":"app")}/>;
+if(page==="onboarding"&&user)return<Onboarding user={user} onDone={()=>setPage("master")}/>;
 if(page==="crews"&&profile)return<CrewSelector user={user} profile={profile} crews={userCrews} onSelect={selectCrew} onCreate={()=>setPage("createCrew")} onMaster={()=>setPage("master")}/>;
-if(page==="createCrew"&&profile)return<CreateCrew user={user} profile={profile} onCreated={(id)=>{setCrewId(id);setPage("app")}} onCancel={userCrews.length?()=>setPage("crews"):null}/>;
-if(page==="settings"&&profile)return<Settings user={user} profile={profile} allUsers={allUsers} crewId={crewId} onBack={()=>setPage("app")}/>;
-if(page==="notifications"&&profile)return<Notifs user={user} people={people} profile={profile} onBack={()=>setPage("app")} onViewProposal={(id)=>{setOPI(id);setPage("app")}} onViewActivity={(id)=>{setOAI(id);setPage("app")}}/>;
-if(page==="faq")return<FAQ onBack={()=>setPage("app")}/>;
+if(page==="createCrew"&&profile)return<CreateCrew user={user} profile={profile} onCreated={(id)=>{setCrewId(id);setPage("app")}} onCancel={userCrews.length?()=>setPage("master"):null}/>;
+if(page==="settings"&&profile)return<Settings user={user} profile={profile} allUsers={allUsers} crewId={crewId} onBack={()=>setPage(crewId?"app":"master")}/>;
+if(page==="notifications"&&profile)return<Notifs user={user} people={people} profile={profile} onBack={()=>setPage(crewId?"app":"master")} onViewProposal={(id)=>{setOPI(id);setPage("app")}} onViewActivity={(id)=>{setOAI(id);setPage("app")}}/>;
+if(page==="faq")return<FAQ onBack={()=>setPage(crewId?"app":"master")}/>;
 if(page==="map"&&profile&&crewId)return<MapPage user={user} profile={profile} allUsers={allUsers} people={people} crewId={crewId} onBack={()=>setPage("app")}/>;
-if(page==="master"&&profile)return<MasterCalendar user={user} profile={profile} allUsers={allUsers} userCrews={userCrews} onSelectCrew={selectCrew} onBack={()=>setPage(crewId?"app":"crews")}/>;
+if(page==="master"&&profile)return<MasterCalendar user={user} profile={profile} allUsers={allUsers} userCrews={userCrews} onSelectCrew={selectCrew} onBack={()=>setPage("crews")}/>;
 if(page==="app"&&profile&&crewId)return<><Main user={user} profile={profile} allUsers={allUsers} crewId={crewId} crewInfo={crewInfo} userCrews={userCrews} onSettings={()=>setPage("settings")} onNotifs={()=>setPage("notifications")} onFAQ={()=>setPage("faq")} onMap={()=>setPage("map")} onSwitchCrew={()=>setPage("crews")} onSelectCrew={selectCrew} onInvite={()=>setInviteOpen(true)} onArchiveCrew={archiveCrew} onDeleteCrew={deleteCrew} onMaster={()=>setPage("master")} openProposalId={openPropId} clearOpenProposal={()=>setOPI(null)} openActId={openActId} clearOpenAct={()=>setOAI(null)}/>
 <InviteModal isOpen={inviteOpen} onClose={()=>setInviteOpen(false)} crewId={crewId} crewInfo={crewInfo} user={user} profile={profile} allUsers={allUsers}/></>;
 return null}
