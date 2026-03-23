@@ -176,6 +176,9 @@ const[sandbox,setSandbox]=useState(false);
 const pfx=sandbox?"sandbox/":"";
 const dbR=path=>db.ref(pfx+path);
 const[nn,setNN]=useState("");const[nc,setNC]=useState(CO[0].v);const[uc,setUC]=useState(0);
+const[gProps,setGProps]=useState([]);// global cross-crew proposals
+const[sQ,setSQ]=useState("");// sidebar search query
+const sRef=useRef(null);
 const[respModal,setRM]=useState(null);
 const[respMode,setRespMode]=useState(null);
 const[viewAct,setVA]=useState(null);
@@ -193,12 +196,14 @@ const myColor=isAdmin?(people.find(p=>p.name===myName)?.color||profile?.color||"
 const canEdit=isAdmin;
 
 useEffect(()=>{const r=db.ref(P(`notifications/${user.uid}`));r.on("value",s=>{const d=s.val()||{};setUC(Object.values(d).filter(n=>!n.read).length)});return()=>r.off()},[user.uid]);
-useEffect(()=>{const h=e=>{if(mRef.current&&!mRef.current.contains(e.target))setMenu(false);if(crewMenuRef.current&&!crewMenuRef.current.contains(e.target)){setCMO(false);setConfirmDel(false)}};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
+useEffect(()=>{const h=e=>{if(mRef.current&&!mRef.current.contains(e.target))setMenu(false);if(crewMenuRef.current&&!crewMenuRef.current.contains(e.target)){setCMO(false);setConfirmDel(false)};if(sRef.current&&!sRef.current.contains(e.target))setSQ("")};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h)},[]);
 useEffect(()=>{if(!crewId)return;const a=db.ref(CP(crewId,"busyTimes")),b=db.ref(CP(crewId,"proposals")),c=db.ref(CP(crewId,"activities")),d=db.ref(CP(crewId,"testPeople")),e=db.ref(CP(crewId,"members"));
 a.on("value",s=>setBT(s.val()||{}));b.on("value",s=>setProps(s.val()?Object.values(s.val()):[]));
 c.on("value",s=>setActs(s.val()?Object.values(s.val()):[]));d.on("value",s=>setTP(s.val()?Object.values(s.val()):[]));
 e.on("value",s=>{const mem=s.val()||{};const mp=Object.values(mem).filter(u=>u.name&&u.color).map(u=>({name:u.name,color:u.color}));setPpl(prev=>{const merged=[...mp];(prev.filter(p=>!mp.find(m=>m.name===p.name))&&tp||[]).forEach(t=>{if(!merged.find(m=>m.name===t.name))merged.push(t)});return merged})});
 return()=>{a.off();b.off();c.off();d.off();e.off()}},[crewId]);
+// Global proposals listener
+useEffect(()=>{const r=db.ref(P("globalProposals"));r.on("value",s=>{const d=s.val();setGProps(d?Object.values(d).filter(p=>p.person===myName||p.sendTo?.includes(myName)):[])}); return()=>r.off()},[myName]);
 useEffect(()=>{if(viewAct){const fresh=acts.find(a=>a.id===viewAct.id);if(fresh)setVA(fresh)}},[acts]);
 useEffect(()=>{if(openActId&&acts.length>0){const a=acts.find(x=>x.id===openActId);if(a){setVA(a);setARM(null);setARN("");setActRcDate("");setActRcTS("14:00");setActRcTE("17:00");if(clearOpenAct)clearOpenAct()}}},[openActId,acts]);
 const recordSeen=(prId)=>{if(profile?.showReadReceipts===false)return;
@@ -308,6 +313,29 @@ const r=p.responses?.[myName];if(!r)return p.sendTo?.includes(myName);
 if(r.hidden)return false;
 return true;
 })};
+// Global (cross-crew) proposals for a day
+const gGPFD=day=>{const dk=fD(cY,cM,day);return gProps.filter(p=>{
+if(p.date!==dk)return false;
+if(p.person===myName)return true;
+const r=p.responses?.[myName];if(!r)return p.sendTo?.includes(myName);
+if(r.hidden)return false;return true;
+})};
+const respondGProp=(propId,status,note,sugDate,sugTS,sugTE)=>{
+db.ref(P("globalProposals")).once("value",s=>{const all=s.val();if(!all)return;
+const entries=Object.entries(all);const found=entries.find(([k,v])=>v.id===propId);if(!found)return;
+const[key,pr]=found;const updated={...pr};if(!updated.responses)updated.responses={};
+updated.responses[myName]={status,note:note||"",hidden:false,
+...(status==="raincheck"?{suggestedDate:sugDate||"",suggestedTimeStart:sugTS||"",suggestedTimeEnd:sugTE||""}:{})};
+db.ref(P(`globalProposals/${key}`)).set(updated);
+const statusLabel=status==="accepted"?"yes we can!":status==="declined"?"womp womp":"raincheck?";
+sendNotif(db,myName,[pr.person],`${myName} responded "${statusLabel}" to your cross-crew proposal${note?`: "${note}"`:""}${status==="raincheck"&&sugDate?` — suggested ${sugDate}`:""}`,allUsers,"response",propId);
+setRM(null);setRN("")})};
+const hideGPropFromCal=(propId)=>{
+db.ref(P("globalProposals")).once("value",s=>{const all=s.val();if(!all)return;
+const entries=Object.entries(all);const found=entries.find(([k,v])=>v.id===propId);if(!found)return;
+const[key,pr]=found;const updated={...pr};if(!updated.responses)updated.responses={};
+if(updated.responses[myName])updated.responses[myName].hidden=true;
+db.ref(P(`globalProposals/${key}`)).set(updated)})};
 const getMyStatus=(pr)=>{if(pr.person===myName)return"sent";return pr.responses?.[myName]?.status||"pending"};
 const getStatusColor=(st)=>st==="accepted"?"#22c55e":st==="declined"?"#94a3b8":st==="raincheck"?"#f59e0b":"#e040fb";
 
@@ -336,6 +364,25 @@ return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fa
 {sideOpen&&<span style={{fontSize:13,fontWeight:600,color:"#475569",whiteSpace:"nowrap"}}>{x[1]}</span>}
 {x[3]>0&&<span style={{position:sideOpen?"static":"absolute",top:4,right:4,background:"#ef4444",color:"#fff",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:700,marginLeft:sideOpen?"auto":0}}>{x[3]}</span>}
 </button>)})}
+{/* Sidebar search */}
+{sideOpen&&<div ref={sRef} style={{padding:"4px 8px 8px",position:"relative"}}>
+<input value={sQ} onChange={e=>setSQ(e.target.value)} placeholder="🔍 search people..." style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:12,outline:"none",background:"#f8fafc",color:"#1e293b",boxSizing:"border-box"}}/>
+{sQ.trim().length>0&&(()=>{const q=sQ.trim().toLowerCase();const matches=Object.entries(allUsers).filter(([uid,u])=>u.name&&u.name.toLowerCase().includes(q)&&uid!==user.uid).slice(0,6);
+const adminP=Object.values(allUsers).find(u=>(u.email||"").toLowerCase()===ADMIN.toLowerCase());
+const filtered=isAdmin?matches:matches.filter(([,u])=>!adminP||u.name!==adminP.name);
+return filtered.length>0?<div style={{position:"absolute",left:8,right:8,top:"100%",background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,boxShadow:"0 8px 24px rgba(0,0,0,0.12)",zIndex:200,maxHeight:240,overflowY:"auto",marginTop:2}}>
+{filtered.map(([uid,u])=>{
+// Find which crews this user is in
+const uCrews=(userCrews||[]).filter(c=>{const cd=crewData||{};return true});// simplified
+return(<div key={uid} style={{padding:"10px 12px",borderBottom:"1px solid #f1f5f9",display:"flex",alignItems:"center",gap:8}}>
+<div style={{width:10,height:10,borderRadius:"50%",background:u.color||"#94a3b8",flexShrink:0}}/>
+<div style={{flex:1,minWidth:0}}>
+<div style={{fontSize:13,fontWeight:600,color:"#1e293b",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{u.name}</div>
+<div style={{fontSize:10,color:"#94a3b8"}}>{u.email||""}</div>
+</div>
+<button onClick={()=>{setSQ("");onInvite()}} style={{fontSize:10,fontWeight:600,color:"#e040fb",background:"#e040fb10",border:"1px solid #e040fb30",borderRadius:6,padding:"3px 8px",cursor:"pointer",flexShrink:0}}>invite</button>
+</div>)})}</div>:<div style={{position:"absolute",left:8,right:8,top:"100%",background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,boxShadow:"0 4px 12px rgba(0,0,0,0.08)",padding:"12px",marginTop:2,zIndex:200}}>
+<p style={{fontSize:12,color:"#94a3b8",fontStyle:"italic"}}>no users found</p></div>})()}</div>}
 </div>
 {sideOpen&&<div style={{padding:"0 8px 8px",borderTop:"1px solid #f1f5f9"}}>
 <div style={{fontSize:10,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.5,padding:"10px 12px 6px"}}>crews</div>
@@ -437,7 +484,7 @@ delete crew</button>}
 const isT=day===today.getDate()&&cM===today.getMonth()&&cY===today.getFullYear();
 const isPast=new Date(cY,cM,day)<new Date(today.getFullYear(),today.getMonth(),today.getDate());
 const dA=gAFD(day),hA=dA.length>0,aC=hA?(people.find(p=>p.name===dA[0].person)?.color||"#e040fb"):null;
-const dP=gPFD(day);
+const dP=gPFD(day);const dGP=gGPFD(day);
 return(<div key={day} onClick={()=>setCD(day)} style={{minHeight:72,borderRadius:10,padding:"6px 8px",
 background:isT?"rgba(224,64,251,0.06)":isPast?"#f8fafc":"#fff",opacity:isPast?0.5:1,
 border:hA?`2px solid ${aC}`:isT?"1.5px solid rgba(224,64,251,0.35)":"1px solid #f1f5f9",cursor:"pointer",transition:"background 0.15s"}}
@@ -458,6 +505,13 @@ style={{fontSize:9,background:mySt==="accepted"?"#22c55e20":mySt==="declined"?"#
 color:mySt==="accepted"?"#22c55e":mySt==="declined"?"#94a3b8":sC,
 borderRadius:4,padding:"2px 4px",fontWeight:600,borderLeft:`3px dashed ${stC}`,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
 {mySt==="sent"?"📤":mySt==="accepted"?"✓":mySt==="declined"?"✗":mySt==="raincheck"?"⏳":"📩"} {(pr.notes||"hangout").slice(0,10)}</div>)})}
+{/* Global cross-crew proposals */}
+{dGP.map(pr=>{const mySt=getMyStatus(pr);const stC=getStatusColor(mySt);
+return(<div key={`g-${pr.id}`} onClick={e=>{e.stopPropagation();setRM({...pr,_global:true});setRN("");setRCDate("");setRCTS("14:00");setRCTE("17:00");setRespMode(null)}}
+style={{fontSize:9,background:mySt==="accepted"?"#22c55e20":mySt==="declined"?"#94a3b820":"linear-gradient(135deg,#e040fb15,#60a5fa15)",
+color:mySt==="accepted"?"#22c55e":mySt==="declined"?"#94a3b8":"#e040fb",
+borderRadius:4,padding:"2px 4px",fontWeight:600,borderLeft:`3px dashed ${stC}`,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>
+🌐 {(pr.notes||"hangout").slice(0,8)}</div>)})}
 </div></div>)})}
 </div></div>
 
@@ -556,6 +610,35 @@ seen by: {Object.keys(pr.seenBy).map((n,i)=><span key={n} style={{color:people.f
 </div>)}
 </>)}</div>
 
+{/* Global Cross-Crew Proposals */}
+{gProps.length>0&&(<div style={{...sS,borderLeft:"4px solid transparent",borderImage:"linear-gradient(135deg,#e040fb,#60a5fa) 1"}}>
+<h2 style={{fontSize:18,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",background:"linear-gradient(135deg,#e040fb,#60a5fa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>cross-crew proposals</h2>
+<p style={{color:"#94a3b8",fontSize:12,margin:"0 0 14px"}}>hangouts with friends across multiple crews</p>
+{gProps.map(pr=>{const uc=allUsers?Object.values(allUsers).find(u=>u.name===pr.person):null;const c=uc?.color||"#e040fb";
+const[y,m,d]=pr.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
+const resp=pr.responses||{};const mySt=getMyStatus(pr);
+return(<div key={pr.id} style={{padding:"14px 16px",marginBottom:10,background:"linear-gradient(135deg,#e040fb05,#60a5fa05)",borderRadius:12,borderLeft:`4px solid ${c}`,position:"relative"}}>
+<div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:10,background:"linear-gradient(135deg,#e040fb,#60a5fa)",color:"#fff",borderRadius:4,padding:"1px 6px",fontWeight:700}}>🌐</span>
+<span style={{fontWeight:700,fontSize:14,color:c}}>{pr.person}</span></div>
+{pr.sendTo&&<div style={{fontSize:12,color:"#94a3b8",marginTop:2}}>to: {Array.isArray(pr.sendTo)?pr.sendTo.join(", "):pr.sendTo}</div>}
+<div style={{fontSize:13,color:"#475569",marginTop:2}}>{dl} · {fTD(pT(pr.timeStart))} – {fTD(pT(pr.timeEnd))}</div>
+{pr.notes&&<div style={{fontSize:13,color:"#64748b",marginTop:4,fontStyle:"italic"}}>"{pr.notes}"</div>}
+{pr.location&&<div style={{fontSize:12,color:"#64748b",marginTop:2}}>📍 {pr.location}</div>}
+{Object.entries(resp).length>0&&(<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:4}}>
+{Object.entries(resp).map(([name,r])=>{const pc2=Object.values(allUsers).find(u=>u.name===name)?.color||"#94a3b8";
+return(<div key={name} style={{fontSize:12,display:"flex",alignItems:"center",gap:6}}>
+<div style={{width:8,height:8,borderRadius:"50%",background:SC[r.status]||"#94a3b8"}}/>
+<span style={{fontWeight:600,color:pc2}}>{name}</span>
+<span style={{color:SC[r.status]||"#94a3b8"}}>{r.status==="accepted"?"yes we can!":r.status==="declined"?"womp womp":r.status==="raincheck"?"raincheck":"pending"}</span>
+{r.note&&<span style={{color:"#94a3b8",fontStyle:"italic"}}>— "{r.note}"</span>}
+</div>)})}</div>)}
+{pr.person!==myName&&pr.sendTo?.includes(myName)&&(!resp[myName]||resp[myName].status==="pending")&&(
+<button onClick={()=>{setRM({...pr,_global:true});setRN("");setRCDate("");setRCTS("14:00");setRCTE("17:00");setRespMode(null)}} style={{marginTop:10,padding:"8px 16px",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer",background:"linear-gradient(135deg,#e040fb,#60a5fa)",color:"#fff",border:"none"}}>respond</button>
+)}
+{mySt!=="pending"&&mySt!=="sent"&&(<div style={{marginTop:6,fontSize:12,color:SC[mySt],fontWeight:600}}>you: {mySt==="accepted"?"yes we can!":mySt==="declined"?"womp womp":"raincheck?"}</div>)}
+</div>)})}
+</div>)}
+
 <div style={{textAlign:"center",padding:"16px 0",color:"#94a3b8",fontSize:12}}>click a day to add available times or activities</div>
 </div>
 
@@ -604,10 +687,13 @@ return<><button onClick={()=>setAI(allSelected?[]:others.map(p=>p.name))} style=
 <Modal isOpen={respModal!==null} onClose={()=>setRM(null)}>
 {respModal&&(()=>{
 const pr=respModal;const sC=people.find(p=>p.name===pr.person)?.color||"#e040fb";
+const isGlobal=pr._global===true;
+const rP=(id,st,nt,sd,sts,ste)=>isGlobal?respondGProp(id,st,nt,sd,sts,ste):respondProp(id,st,nt,sd,sts,ste);
+const hP=(id)=>isGlobal?hideGPropFromCal(id):hidePropFromCal(id);
 const[y,m,d]=pr.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
 const mySt=getMyStatus(pr);const isSender=pr.person===myName;
 return(<>
-<h3 style={{margin:"0 0 4px",fontSize:18,fontWeight:700,color:sC}}>hangout proposal</h3>
+<h3 style={{margin:"0 0 4px",fontSize:18,fontWeight:700,color:sC}}>{isGlobal&&<span style={{fontSize:12,background:"linear-gradient(135deg,#e040fb,#60a5fa)",color:"#fff",borderRadius:6,padding:"2px 8px",marginRight:8,fontWeight:700,verticalAlign:"middle"}}>cross-crew</span>}hangout proposal</h3>
 <div style={{fontSize:14,fontWeight:600,color:"#1e293b",marginTop:8}}>from: {pr.person}</div>
 <div style={{fontSize:13,color:"#475569",marginTop:4}}>{dl} · {fTD(pT(pr.timeStart))} – {fTD(pT(pr.timeEnd))}</div>
 {pr.notes&&<div style={{fontSize:13,color:"#64748b",marginTop:4,fontStyle:"italic"}}>"{pr.notes}"</div>}
@@ -637,14 +723,14 @@ return(<span key={name} style={{fontSize:12,color:pc,fontWeight:600}}>{name}</sp
 <label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>add a note (optional)</label>
 <input value={respNote} onChange={e=>setRN(e.target.value)} placeholder="can't wait!" style={iS}/>
 <div style={{display:"flex",gap:10}}><button onClick={()=>setRespMode(null)} style={{background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 18px",fontSize:14,cursor:"pointer"}}>back</button>
-<button onClick={()=>respondProp(pr.id,"accepted",respNote)} style={{background:"#22c55e",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>confirm</button></div></div>)}
+<button onClick={()=>rP(pr.id,"accepted",respNote)} style={{background:"#22c55e",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>confirm</button></div></div>)}
 {respMode==="no"&&(<div style={{marginTop:16}}>
 <label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>add a note (optional)</label>
 <input value={respNote} onChange={e=>setRN(e.target.value)} placeholder="sorry, can't make it..." style={iS}/>
 <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
 <button onClick={()=>setRespMode(null)} style={{background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 18px",fontSize:14,cursor:"pointer"}}>back</button>
-<button onClick={()=>{respondProp(pr.id,"declined",respNote)}} style={{background:"#ef4444",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>decline & keep on calendar</button>
-<button onClick={()=>{respondProp(pr.id,"declined",respNote);setTimeout(()=>hidePropFromCal(pr.id),500)}} style={{background:"#94a3b8",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>decline & remove from calendar</button>
+<button onClick={()=>{rP(pr.id,"declined",respNote)}} style={{background:"#ef4444",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>decline & keep on calendar</button>
+<button onClick={()=>{rP(pr.id,"declined",respNote);setTimeout(()=>hP(pr.id),500)}} style={{background:"#94a3b8",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>decline & remove from calendar</button>
 </div></div>)}
 {respMode==="rc"&&(<div style={{marginTop:16}}>
 <label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>suggest another day</label>
@@ -655,7 +741,7 @@ return(<span key={name} style={{fontSize:12,color:pc,fontWeight:600}}>{name}</sp
 <label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>note (optional)</label>
 <input value={respNote} onChange={e=>setRN(e.target.value)} placeholder="how about next week instead?" style={iS}/>
 <div style={{display:"flex",gap:10}}><button onClick={()=>setRespMode(null)} style={{background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 18px",fontSize:14,cursor:"pointer"}}>back</button>
-<button onClick={()=>respondProp(pr.id,"raincheck",respNote,rcDate,rcTS,rcTE)} style={{background:"#f59e0b",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>suggest raincheck</button></div></div>)}
+<button onClick={()=>rP(pr.id,"raincheck",respNote,rcDate,rcTS,rcTE)} style={{background:"#f59e0b",color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:"pointer"}}>suggest raincheck</button></div></div>)}
 {mySt!=="pending"&&mySt!=="sent"&&!respMode&&(
 <div style={{marginTop:12,padding:"10px 14px",background:SC[mySt]+"15",borderRadius:10,display:"flex",alignItems:"center",gap:8}}>
 <div style={{width:10,height:10,borderRadius:"50%",background:SC[mySt]}}/>
@@ -871,6 +957,8 @@ const faqs=[
 {q:"how do notifications work?",a:"you get in-app notifications when someone sends you a proposal, invites you to an activity, or responds to your proposal. check the hamburger menu for the notification badge. email and text notifications are coming soon."},
 {q:"can I change my name or color?",a:"yes — go to settings (hamburger menu → settings) to update your name, color, address, phone, and notification preferences."},
 {q:"what is the master view?",a:"the master view combines all your crews into one read-only calendar. you can see activities, proposals, and 'can we kick it' windows from every crew at a glance. tap any item to jump straight into that crew."},
+{q:"what are cross-crew proposals?",a:"cross-crew proposals let you invite friends from different crews into one hangout. create them from the master view — search for people by name across all your crews, pick a day and time, and send it. recipients see the proposal on their calendar with a 🌐 badge, and can respond just like a regular proposal."},
+{q:"how do I search for people?",a:"open the sidebar and use the search bar to find anyone on the app by name. from there you can invite them to your crew. you can also search by name when inviting someone to a crew — no need to know their email."},
 ];
 const[open,setOpen]=useState(null);
 return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fafc",minHeight:"100vh",color:"#1e293b",padding:"24px 16px"}}><div style={{maxWidth:600,margin:"0 auto"}}>
@@ -966,16 +1054,32 @@ onMouseLeave={e=>{e.currentTarget.style.borderColor="#e2e8f0";e.currentTarget.st
 </div></div></div>)}
 
 /* ===== INVITE TO CREW ===== */
-function InviteModal({isOpen,onClose,crewId,crewInfo,user,profile}){
+function InviteModal({isOpen,onClose,crewId,crewInfo,user,profile,allUsers}){
 const[email,setEmail]=useState("");const[sent,setSent]=useState(false);const[err,setErr]=useState("");
+const[nameQ,setNameQ]=useState("");
 const send=async()=>{if(!email.trim()||!email.includes("@")){setErr("enter a valid email");return}setErr("");
 await db.ref(P("crewInvites")).push({crewId,crewName:crewInfo?.name||"crew",icon:crewInfo?.icon||"🎯",email:email.trim().toLowerCase(),invitedBy:profile?.name||"someone",time:Date.now()});
 setSent(true);setEmail("");setTimeout(()=>setSent(false),3000)};
+const sendByName=(u)=>{if(!u.email)return;
+db.ref(P("crewInvites")).push({crewId,crewName:crewInfo?.name||"crew",icon:crewInfo?.icon||"🎯",email:u.email.toLowerCase(),invitedBy:profile?.name||"someone",time:Date.now()});
+setSent(true);setNameQ("");setTimeout(()=>setSent(false),3000)};
 if(!isOpen)return null;
 const iS={background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:8,padding:"12px 14px",color:"#1e293b",fontSize:14,outline:"none",width:"100%",boxSizing:"border-box"};
+const nameResults=nameQ.trim().length>1?Object.entries(allUsers||{}).filter(([uid,u])=>u.name&&u.name.toLowerCase().includes(nameQ.trim().toLowerCase())&&uid!==user.uid).slice(0,5):[];
 return(<Modal isOpen={isOpen} onClose={onClose}>
 <h3 style={{margin:"0 0 4px",fontSize:18,fontWeight:700,color:"#e040fb"}}>invite to {crewInfo?.name||"crew"}</h3>
-<p style={{color:"#64748b",fontSize:13,margin:"0 0 16px"}}>they'll see the invite when they log in</p>
+<p style={{color:"#64748b",fontSize:13,margin:"0 0 16px"}}>search by name or enter an email</p>
+<div style={{marginBottom:12,position:"relative"}}>
+<input value={nameQ} onChange={e=>setNameQ(e.target.value)} placeholder="search by name..." style={{...iS,marginBottom:0}}/>
+{nameResults.length>0&&<div style={{position:"absolute",left:0,right:0,top:"100%",background:"#fff",border:"1px solid #e2e8f0",borderRadius:8,boxShadow:"0 4px 12px rgba(0,0,0,0.1)",zIndex:10,maxHeight:200,overflowY:"auto",marginTop:2}}>
+{nameResults.map(([uid,u])=>(
+<button key={uid} onClick={()=>sendByName(u)} style={{width:"100%",textAlign:"left",padding:"10px 14px",background:"none",border:"none",borderBottom:"1px solid #f1f5f9",cursor:"pointer",display:"flex",alignItems:"center",gap:8}}>
+<div style={{width:10,height:10,borderRadius:"50%",background:u.color||"#94a3b8"}}/>
+<div style={{flex:1}}><div style={{fontSize:13,fontWeight:600}}>{u.name}</div><div style={{fontSize:10,color:"#94a3b8"}}>{u.email}</div></div>
+<span style={{fontSize:11,color:"#e040fb",fontWeight:600}}>invite →</span>
+</button>))}</div>}
+</div>
+<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:12}}><div style={{flex:1,height:1,background:"#e2e8f0"}}/><span style={{fontSize:11,color:"#94a3b8",flexShrink:0}}>or enter email</span><div style={{flex:1,height:1,background:"#e2e8f0"}}/></div>
 <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="friend@email.com" type="email" onKeyDown={e=>e.key==="Enter"&&send()} style={iS}/>
 {err&&<p style={{color:"#ef4444",fontSize:12,marginTop:6}}>{err}</p>}
 {sent&&<p style={{color:"#22c55e",fontSize:12,marginTop:6}}>invite sent!</p>}
@@ -992,6 +1096,10 @@ const[crewData,setCrewData]=useState({});
 const[loading,setLoading]=useState(true);
 const myName=profile?.name||"";
 const isAdmin=(profile?.email||"").toLowerCase()===ADMIN.toLowerCase();
+const[gProps,setGProps]=useState([]);
+const[xDay,setXDay]=useState("");const[xTS,setXTS]=useState("14:00");const[xTE,setXTE]=useState("17:00");
+const[xNote,setXNote]=useState("");const[xLoc,setXLoc]=useState("");const[xTo,setXTo]=useState([]);
+const[xSearch,setXSearch]=useState("");
 
 // Assign each crew a distinct gradient color
 const CREW_COLORS=["#e040fb","#60a5fa","#4ecdc4","#f59e0b","#ef4444","#a78bfa","#22c55e","#f472b6"];
@@ -1016,6 +1124,26 @@ aR.on("value",handler("acts"));pR.on("value",handler("props"));bR.on("value",han
 refs.push(aR,pR,bR,mR)});
 setTimeout(()=>setLoading(false),800);
 return()=>refs.forEach(r=>r.off())},[userCrews]);
+
+// Global proposals listener
+useEffect(()=>{const r=db.ref(P("globalProposals"));r.on("value",s=>{const d=s.val();
+setGProps(d?Object.values(d).filter(p=>p.person===myName||p.sendTo?.includes(myName)):[])}); return()=>r.off()},[myName]);
+
+// All people across all crews (deduplicated)
+const allPeople=useMemo(()=>{const map={};
+(userCrews||[]).forEach(crew=>{const cd=crewData[crew.id];if(!cd)return;
+cd.members.forEach(m=>{if(m.name!==myName&&!map[m.name])map[m.name]={name:m.name,color:m.color,crews:[crew.name]};
+else if(m.name!==myName&&map[m.name])map[m.name].crews.push(crew.name)})});
+// Also include users not in any of my crews (for search)
+return Object.values(map)},[crewData,userCrews,myName]);
+
+const submitXProp=async()=>{if(!xDay||xTo.length===0)return;
+const loc=xLoc.trim()?await geocode(xLoc.trim()):null;
+const resp={};xTo.forEach(n=>{resp[n]={status:"pending",note:"",hidden:false}});
+const np={person:myName,date:xDay,timeStart:xTS,timeEnd:xTE,notes:xNote,location:xLoc.trim()||"",coords:loc,sendTo:xTo,responses:resp,id:Date.now(),uid:user.uid,_global:true};
+db.ref(P("globalProposals")).push(np);
+sendNotif(db,myName,xTo,`${myName} proposed a cross-crew hangout: ${xNote||"let's kick it!"}${xLoc.trim()?" at "+xLoc.trim():""} on ${xDay}`,allUsers,"proposal",np.id);
+setXNote("");setXTo([]);setXLoc("")};
 
 const dIM=gDIM(cY,cM),fDay=gFDOM(cY,cM);
 const cDays=useMemo(()=>{const d=[];for(let i=0;i<fDay;i++)d.push(null);for(let i=1;i<=dIM;i++)d.push(i);return d},[fDay,dIM]);
@@ -1178,6 +1306,70 @@ style={{padding:"12px 16px",marginBottom:6,background:a.crewColor+"08",borderRad
 {a.location&&<div style={{fontSize:11,color:"#64748b",marginTop:2}}>📍 {a.location}</div>}
 <div style={{fontSize:10,color:a.crewColor,marginTop:4}}>tap to open crew →</div>
 </div>)})})()}</div>
+
+{/* Cross-Crew Proposal Form */}
+<div style={{...sS,borderLeft:"4px solid transparent",borderImage:"linear-gradient(135deg,#e040fb,#60a5fa) 1"}}>
+<h2 style={{fontSize:20,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",background:"linear-gradient(135deg,#e040fb,#60a5fa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>cross-crew proposal</h2>
+<p style={{color:"#94a3b8",fontSize:12,margin:"0 0 18px"}}>invite friends from any crew to hang out</p>
+<div style={{display:"flex",flexDirection:"column",gap:14}}>
+<div><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>who do you want to invite?</label>
+<input value={xSearch} onChange={e=>setXSearch(e.target.value)} placeholder="search by name..." style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:13,outline:"none",background:"#f8fafc",color:"#1e293b",boxSizing:"border-box",marginBottom:8}}/>
+{xSearch.trim()&&(()=>{const q=xSearch.trim().toLowerCase();
+const matches=allPeople.filter(p=>p.name.toLowerCase().includes(q)&&!xTo.includes(p.name)).slice(0,5);
+// Also search global users not in any of my crews
+const globalMatches=Object.values(allUsers).filter(u=>u.name&&u.name.toLowerCase().includes(q)&&u.name!==myName&&!xTo.includes(u.name)&&!allPeople.find(ap=>ap.name===u.name)).slice(0,3);
+return(matches.length>0||globalMatches.length>0)?<div style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:8,marginBottom:8,maxHeight:160,overflowY:"auto"}}>
+{matches.map(p=><button key={p.name} onClick={()=>{setXTo([...xTo,p.name]);setXSearch("")}} style={{width:"100%",textAlign:"left",padding:"8px 12px",background:"none",border:"none",borderBottom:"1px solid #f1f5f9",cursor:"pointer",display:"flex",alignItems:"center",gap:8}}>
+<div style={{width:8,height:8,borderRadius:"50%",background:p.color}}/><span style={{fontSize:13,fontWeight:600}}>{p.name}</span>
+<span style={{fontSize:10,color:"#94a3b8",marginLeft:"auto"}}>{p.crews?.join(", ")}</span></button>)}
+{globalMatches.map(u=><button key={u.name} onClick={()=>{setXTo([...xTo,u.name]);setXSearch("")}} style={{width:"100%",textAlign:"left",padding:"8px 12px",background:"none",border:"none",borderBottom:"1px solid #f1f5f9",cursor:"pointer",display:"flex",alignItems:"center",gap:8}}>
+<div style={{width:8,height:8,borderRadius:"50%",background:u.color||"#94a3b8"}}/><span style={{fontSize:13,fontWeight:600}}>{u.name}</span>
+<span style={{fontSize:10,color:"#94a3b8",marginLeft:"auto"}}>other</span></button>)}
+</div>:null})()}
+{xTo.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{xTo.map(n=>{const p=allPeople.find(x=>x.name===n)||Object.values(allUsers).find(u=>u.name===n);const c=p?.color||"#94a3b8";
+return<div key={n} style={{display:"flex",alignItems:"center",gap:4,background:c+"15",borderRadius:16,padding:"4px 10px",border:`1.5px solid ${c}`}}>
+<div style={{width:6,height:6,borderRadius:"50%",background:c}}/><span style={{fontSize:12,fontWeight:600,color:c}}>{n}</span>
+<button onClick={()=>setXTo(xTo.filter(x=>x!==n))} style={{background:"none",border:"none",color:c,cursor:"pointer",fontSize:12,fontWeight:700,padding:0,marginLeft:2}}>×</button></div>})}</div>}
+{xTo.length===0&&!xSearch&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{allPeople.slice(0,8).map(p=>(
+<button key={p.name} onClick={()=>setXTo([...xTo,p.name])} style={{padding:"5px 12px",borderRadius:8,fontSize:12,fontWeight:600,background:"#f8fafc",border:`1.5px solid #e2e8f0`,color:"#64748b",cursor:"pointer"}}>{p.name}</button>))}</div>}
+</div>
+<div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+<div style={{flex:"2 1 180px"}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>pick a day</label>
+<input type="date" value={xDay} onChange={e=>setXDay(e.target.value)} style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:14,outline:"none",background:"#f8fafc",color:"#1e293b",boxSizing:"border-box"}}/></div>
+<div style={{flex:"1 1 100px"}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>from</label><input type="time" value={xTS} onChange={e=>setXTS(e.target.value)} style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:14,outline:"none",background:"#f8fafc",color:"#1e293b",boxSizing:"border-box"}}/></div>
+<div style={{flex:"1 1 100px"}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>to</label><input type="time" value={xTE} onChange={e=>setXTE(e.target.value)} style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:14,outline:"none",background:"#f8fafc",color:"#1e293b",boxSizing:"border-box"}}/></div></div>
+<div><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>notes</label>
+<textarea value={xNote} onChange={e=>setXNote(e.target.value)} placeholder="what's the plan?" rows={2} style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:14,outline:"none",background:"#f8fafc",color:"#1e293b",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}}/></div>
+<div><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>where? <span style={{fontWeight:400,color:"#94a3b8"}}>(optional)</span></label>
+<input value={xLoc} onChange={e=>setXLoc(e.target.value)} placeholder="address, park, restaurant..." style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:14,outline:"none",background:"#f8fafc",color:"#1e293b",boxSizing:"border-box"}}/></div>
+<button onClick={submitXProp} disabled={!xDay||xTo.length===0} style={{alignSelf:"flex-start",padding:"10px 22px",borderRadius:10,fontSize:14,fontWeight:600,cursor:(!xDay||xTo.length===0)?"not-allowed":"pointer",
+background:(!xDay||xTo.length===0)?"#cbd5e1":"linear-gradient(135deg,#e040fb,#60a5fa)",color:"#fff",border:"none",letterSpacing:0.3}}>can we kick it?</button>
+</div></div>
+
+{/* Global proposals list */}
+{gProps.length>0&&(<div style={sS}>
+<h2 style={{fontSize:18,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",background:"linear-gradient(135deg,#e040fb,#60a5fa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>cross-crew proposals</h2>
+<p style={{color:"#94a3b8",fontSize:12,margin:"0 0 14px"}}>hangouts spanning multiple crews</p>
+{gProps.map(pr=>{const uc2=Object.values(allUsers).find(u=>u.name===pr.person);const c=uc2?.color||"#e040fb";
+const[y,m,d]=pr.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
+const resp=pr.responses||{};const mySt=pr.person===myName?"sent":(resp[myName]?.status||"pending");
+return(<div key={pr.id} style={{padding:"14px 16px",marginBottom:10,background:"linear-gradient(135deg,#e040fb05,#60a5fa05)",borderRadius:12,borderLeft:`4px solid ${c}`}}>
+<div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontSize:10,background:"linear-gradient(135deg,#e040fb,#60a5fa)",color:"#fff",borderRadius:4,padding:"1px 6px",fontWeight:700}}>🌐</span>
+<span style={{fontWeight:700,fontSize:14,color:c}}>{pr.person}</span></div>
+{pr.sendTo&&<div style={{fontSize:12,color:"#94a3b8",marginTop:2}}>to: {Array.isArray(pr.sendTo)?pr.sendTo.join(", "):pr.sendTo}</div>}
+<div style={{fontSize:13,color:"#475569",marginTop:2}}>{dl} · {fTD(pT(pr.timeStart))} – {fTD(pT(pr.timeEnd))}</div>
+{pr.notes&&<div style={{fontSize:13,color:"#64748b",marginTop:4,fontStyle:"italic"}}>"{pr.notes}"</div>}
+{pr.location&&<div style={{fontSize:12,color:"#64748b",marginTop:2}}>📍 {pr.location}</div>}
+{Object.entries(resp).length>0&&(<div style={{marginTop:8,display:"flex",flexDirection:"column",gap:4}}>
+{Object.entries(resp).map(([name,r])=>{const pc=Object.values(allUsers).find(u=>u.name===name)?.color||"#94a3b8";
+return(<div key={name} style={{fontSize:12,display:"flex",alignItems:"center",gap:6}}>
+<div style={{width:8,height:8,borderRadius:"50%",background:SC[r.status]||"#94a3b8"}}/>
+<span style={{fontWeight:600,color:pc}}>{name}</span>
+<span style={{color:SC[r.status]||"#94a3b8"}}>{r.status==="accepted"?"yes we can!":r.status==="declined"?"womp womp":r.status==="raincheck"?"raincheck":"pending"}</span>
+</div>)})}</div>)}
+{mySt!=="pending"&&mySt!=="sent"&&(<div style={{marginTop:6,fontSize:12,color:SC[mySt],fontWeight:600}}>you: {mySt==="accepted"?"yes we can!":mySt==="declined"?"womp womp":"raincheck?"}</div>)}
+</div>)})}
+</div>)}
 </>)}
 </div></div>)}
 
@@ -1274,7 +1466,7 @@ if(page==="faq")return<FAQ onBack={()=>setPage("app")}/>;
 if(page==="map"&&profile&&crewId)return<MapPage user={user} profile={profile} allUsers={allUsers} people={people} crewId={crewId} onBack={()=>setPage("app")}/>;
 if(page==="master"&&profile)return<MasterCalendar user={user} profile={profile} allUsers={allUsers} userCrews={userCrews} onSelectCrew={selectCrew} onBack={()=>setPage(crewId?"app":"crews")}/>;
 if(page==="app"&&profile&&crewId)return<><Main user={user} profile={profile} allUsers={allUsers} crewId={crewId} crewInfo={crewInfo} userCrews={userCrews} onSettings={()=>setPage("settings")} onNotifs={()=>setPage("notifications")} onFAQ={()=>setPage("faq")} onMap={()=>setPage("map")} onSwitchCrew={()=>setPage("crews")} onSelectCrew={selectCrew} onInvite={()=>setInviteOpen(true)} onArchiveCrew={archiveCrew} onDeleteCrew={deleteCrew} onMaster={()=>setPage("master")} openProposalId={openPropId} clearOpenProposal={()=>setOPI(null)} openActId={openActId} clearOpenAct={()=>setOAI(null)}/>
-<InviteModal isOpen={inviteOpen} onClose={()=>setInviteOpen(false)} crewId={crewId} crewInfo={crewInfo} user={user} profile={profile}/></>;
+<InviteModal isOpen={inviteOpen} onClose={()=>setInviteOpen(false)} crewId={crewId} crewInfo={crewInfo} user={user} profile={profile} allUsers={allUsers}/></>;
 return null}
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
