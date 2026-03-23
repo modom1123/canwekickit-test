@@ -358,7 +358,7 @@ return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fa
 {sideOpen&&<span style={{fontSize:13,fontWeight:700,color:"#1e293b",whiteSpace:"nowrap"}}>menu</span>}
 </button>
 <div style={{padding:8,flex:1,display:"flex",flexDirection:"column",gap:2}}>
-{[["🔔","notifications",onNotifs,uc],["🗺️","crew map",onMap,0],["📅","calendars",onSwitchCrew,0],["🌐","master view",onMaster,0]].map(function(x){return(
+{[["🔔","notifications",onNotifs,uc],["🗺️","crew map",onMap,0],["📅","calendars",onSwitchCrew,0],["🌐","the big picture",onMaster,0]].map(function(x){return(
 <button key={x[1]} onClick={x[2]} style={{display:"flex",alignItems:"center",gap:10,padding:sideOpen?"10px 12px":"10px 14px",borderRadius:10,background:"none",border:"none",cursor:"pointer",width:"100%",textAlign:"left",position:"relative"}}>
 <span style={{fontSize:18,flexShrink:0,width:24,textAlign:"center"}}>{x[0]}</span>
 {sideOpen&&<span style={{fontSize:13,fontWeight:600,color:"#475569",whiteSpace:"nowrap"}}>{x[1]}</span>}
@@ -447,7 +447,7 @@ delete crew</button>}
 <button onClick={()=>{setMenu(false);onNotifs()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,display:"flex",alignItems:"center",justifyContent:"space-between"}}>notifications{uc>0&&<span style={{background:"#ef4444",color:"#fff",borderRadius:10,padding:"2px 8px",fontSize:11,fontWeight:700}}>{uc}</span>}</button>
 <button onClick={()=>{setMenu(false);exportCal()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>export to calendar</button>
 <button onClick={()=>{setMenu(false);onMap()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>crew map</button>
-<button onClick={()=>{setMenu(false);onMaster()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>master view</button>
+<button onClick={()=>{setMenu(false);onMaster()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>the big picture</button>
 <button onClick={()=>{setMenu(false);onSwitchCrew()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>switch crew</button>
 <button onClick={()=>{setMenu(false);onSettings()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>settings</button>
 <button onClick={()=>{setMenu(false);onFAQ()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>FAQ</button>
@@ -956,8 +956,8 @@ const faqs=[
 {q:"what are read receipts?",a:"when enabled (in settings), others can see that you've viewed their proposal. this helps the sender know who's seen it even if they haven't responded yet. you can turn this off anytime in settings for full privacy."},
 {q:"how do notifications work?",a:"you get in-app notifications when someone sends you a proposal, invites you to an activity, or responds to your proposal. check the hamburger menu for the notification badge. email and text notifications are coming soon."},
 {q:"can I change my name or color?",a:"yes — go to settings (hamburger menu → settings) to update your name, color, address, phone, and notification preferences."},
-{q:"what is the master view?",a:"the master view combines all your crews into one read-only calendar. you can see activities, proposals, and 'can we kick it' windows from every crew at a glance. tap any item to jump straight into that crew."},
-{q:"what are cross-crew proposals?",a:"cross-crew proposals let you invite friends from different crews into one hangout. create them from the master view — search for people by name across all your crews, pick a day and time, and send it. recipients see the proposal on their calendar with a 🌐 badge, and can respond just like a regular proposal."},
+{q:"what is the big picture?",a:"the big picture combines all your crews into one calendar. you can see activities, proposals, and 'can we kick it' windows from every crew at a glance. tap any item to jump straight into that crew."},
+{q:"what are cross-crew proposals?",a:"cross-crew proposals let you invite friends from different crews into one hangout. create them from the big picture — search for people by name across all your crews, pick a day and time, and send it. recipients see the proposal on their calendar with a 🌐 badge, and can respond just like a regular proposal."},
 {q:"how do I search for people?",a:"open the sidebar and use the search bar to find anyone on the app by name. from there you can invite them to your crew. you can also search by name when inviting someone to a crew — no need to know their email."},
 ];
 const[open,setOpen]=useState(null);
@@ -1035,7 +1035,7 @@ return(<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justify
 background:"linear-gradient(135deg,#e040fb08,#60a5fa08)",border:"2px solid #e040fb30",cursor:"pointer",textAlign:"left",display:"flex",alignItems:"center",gap:12,transition:"border-color 0.15s"}}
 onMouseEnter={e=>e.currentTarget.style.borderColor="#e040fb"} onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(224,64,251,0.2)"}>
 <span style={{fontSize:28}}>🌐</span>
-<div><div style={{fontSize:16,fontWeight:700,background:"linear-gradient(135deg,#e040fb,#60a5fa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>master view</div>
+<div><div style={{fontSize:16,fontWeight:700,background:"linear-gradient(135deg,#e040fb,#60a5fa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>the big picture</div>
 <div style={{fontSize:12,color:"#94a3b8"}}>all crews in one calendar</div></div>
 </button>}
 
@@ -1206,7 +1206,7 @@ return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fa
 <div style={{textAlign:"center",marginBottom:24}}>
 <img src="can_we_kick_it_transp.png" alt="logo" onClick={()=>window.scrollTo({top:0,behavior:"smooth"})} style={{height:60,objectFit:"contain",cursor:"pointer",marginBottom:8}}/>
 <h1 style={{fontFamily:"'Nunito',sans-serif",fontSize:28,fontWeight:800,marginBottom:4,
-background:"linear-gradient(135deg,#e040fb,#60a5fa,#4ecdc4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>master view</h1>
+background:"linear-gradient(135deg,#e040fb,#60a5fa,#4ecdc4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>the big picture</h1>
 <p style={{color:"#94a3b8",fontSize:13}}>all your crews, one calendar</p>
 <button onClick={onBack} style={{marginTop:10,background:"none",border:"1px solid #e2e8f0",borderRadius:8,padding:"6px 14px",fontSize:12,fontWeight:600,color:"#64748b",cursor:"pointer"}}>📅 your crews</button>
 </div>
