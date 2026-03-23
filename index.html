@@ -36,13 +36,18 @@ const pT=s=>{const[h,m]=s.split(":").map(Number);return h+m/60};
 const fTD=h=>{const hr=Math.floor(h),mn=Math.round((h-hr)*60),ap=hr>=12?"PM":"AM",h12=hr===0?12:hr>12?hr-12:hr;return`${h12}:${String(mn).padStart(2,"0")} ${ap}`};
 const SC={pending:"#94a3b8",accepted:"#22c55e",declined:"#ef4444",raincheck:"#f59e0b"};
 
-async function geocode(address){
+async function geocode(address,bias){
 if(!address||!address.trim())return null;
-const cacheKey=address.trim().toLowerCase().replace(/[^a-z0-9]/g,"_");
+// If query looks like just a venue name (no city/state/zip), append bias location
+let q=address.trim();
+const hasGeo=/\d{5}|,\s*[A-Z]{2}\b|,\s*\w+\s+(state|city|county)|portland|seattle|denver|austin|new york|los angeles|chicago|san francisco/i.test(q);
+if(!hasGeo&&bias)q=q+", "+bias;
+else if(!hasGeo)q=q+", Portland, OR";// default bias
+const cacheKey=q.toLowerCase().replace(/[^a-z0-9]/g,"_");
 const snap=await db.ref(P(`geocache/${cacheKey}`)).once("value");
 if(snap.val())return snap.val();
 try{
-const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`);
+const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`);
 const d=await r.json();
 if(d.length>0){const loc={lat:parseFloat(d[0].lat),lng:parseFloat(d[0].lon)};
 db.ref(P(`geocache/${cacheKey}`)).set(loc);return loc}
@@ -58,6 +63,31 @@ function sendNotif(db,from,toNames,msg,allUsers,type,refId){Object.entries(allUs
 function Modal({isOpen,onClose,children}){if(!isOpen)return null;
 return(<div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.3)",backdropFilter:"blur(6px)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}>
 <div onClick={e=>e.stopPropagation()} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:16,padding:28,minWidth:340,maxWidth:460,boxShadow:"0 25px 60px rgba(0,0,0,0.15)",maxHeight:"90vh",overflowY:"auto"}}>{children}</div></div>)}
+
+/* ===== MINI MAP PREVIEW ===== */
+function MiniMap({location,bias}){
+const ref=useRef(null);const mapRef=useRef(null);const mkRef=useRef(null);
+const[resolved,setResolved]=useState(null);const[loading,setLoading]=useState(false);const timerRef=useRef(null);
+useEffect(()=>{if(timerRef.current)clearTimeout(timerRef.current);
+if(!location||!location.trim()){setResolved(null);if(mkRef.current&&mapRef.current){mapRef.current.removeLayer(mkRef.current);mkRef.current=null}return}
+setLoading(true);
+timerRef.current=setTimeout(async()=>{const loc=await geocode(location,bias);
+if(loc){setResolved(loc);setLoading(false);
+if(!mapRef.current&&ref.current){const m=L.map(ref.current,{zoomControl:false,attributionControl:false,dragging:false,scrollWheelZoom:false,doubleClickZoom:false,touchZoom:false}).setView([loc.lat,loc.lng],15);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png").addTo(m);mapRef.current=m;setTimeout(()=>m.invalidateSize(),100)}
+if(mapRef.current){mapRef.current.setView([loc.lat,loc.lng],15);
+if(mkRef.current)mapRef.current.removeLayer(mkRef.current);
+mkRef.current=L.marker([loc.lat,loc.lng]).addTo(mapRef.current)}
+}else{setResolved(null);setLoading(false)}},600);
+return()=>{if(timerRef.current)clearTimeout(timerRef.current)}},[location,bias]);
+useEffect(()=>{return()=>{if(mapRef.current){mapRef.current.remove();mapRef.current=null}}},[]);
+if(!location||!location.trim())return null;
+return(<div style={{marginTop:8}}>
+{loading&&<div style={{fontSize:11,color:"#94a3b8",marginBottom:4}}>finding location...</div>}
+{resolved&&!loading&&<div style={{fontSize:11,color:"#22c55e",marginBottom:4,fontWeight:600}}>✓ location found</div>}
+{!resolved&&!loading&&location.trim()&&<div style={{fontSize:11,color:"#f59e0b",marginBottom:4}}>location not found — try adding city/state</div>}
+<div ref={ref} style={{height:resolved?140:0,borderRadius:10,overflow:"hidden",border:resolved?"1px solid #e2e8f0":"none",transition:"height 0.3s"}}/>
+</div>)}
 
 /* ===== LANDING ===== */
 function Landing({onEnter}){return(<div onClick={onEnter} style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"#0a0a0a",cursor:"pointer",userSelect:"none"}}>
@@ -182,6 +212,9 @@ const sRef=useRef(null);
 const[respModal,setRM]=useState(null);
 const[respMode,setRespMode]=useState(null);
 const[viewAct,setVA]=useState(null);
+const[actEdit,setActEdit]=useState(false);
+const[aeDesc,setAEDesc]=useState("");const[aeTS,setAETS]=useState("");const[aeTE,setAETE]=useState("");
+const[aeLoc,setAELoc]=useState("");const[aeDate,setAEDate]=useState("");
 const[actRespNote,setARN]=useState("");
 const[actRespMode,setARM]=useState(null);
 const[actRcDate,setActRcDate]=useState("");const[actRcTS,setActRcTS]=useState("14:00");const[actRcTE,setActRcTE]=useState("17:00");
@@ -205,7 +238,7 @@ return()=>{a.off();b.off();c.off();d.off();e.off()}},[crewId]);
 // Global proposals listener
 useEffect(()=>{const r=db.ref(P("globalProposals"));r.on("value",s=>{const d=s.val();setGProps(d?Object.values(d).filter(p=>p.person===myName||p.sendTo?.includes(myName)):[])}); return()=>r.off()},[myName]);
 useEffect(()=>{if(viewAct){const fresh=acts.find(a=>a.id===viewAct.id);if(fresh)setVA(fresh)}},[acts]);
-useEffect(()=>{if(openActId&&acts.length>0){const a=acts.find(x=>x.id===openActId);if(a){setVA(a);setARM(null);setARN("");setActRcDate("");setActRcTS("14:00");setActRcTE("17:00");if(clearOpenAct)clearOpenAct()}}},[openActId,acts]);
+useEffect(()=>{if(openActId&&acts.length>0){const a=acts.find(x=>x.id===openActId);if(a){setVA(a);setActEdit(false);setARM(null);setARN("");setActRcDate("");setActRcTS("14:00");setActRcTE("17:00");if(clearOpenAct)clearOpenAct()}}},[openActId,acts]);
 const recordSeen=(prId)=>{if(profile?.showReadReceipts===false)return;
 const idx=props.findIndex(p=>p.id===prId);if(idx===-1)return;
 const updated=JSON.parse(JSON.stringify(props));if(!updated[idx].seenBy)updated[idx].seenBy={};
@@ -229,7 +262,7 @@ db.ref(CP(crewId,"busyTimes")).set(Object.keys(nb).length?nb:null);setMO(false)}
 const openAct=d=>{setAD(d);setATS("10:00");setATE("14:00");setADesc("");setALoc("");setAI([]);setActP("");setAMO(true)};
 const saveAct=async()=>{if(!ad||!adesc.trim())return;const an=isAdmin&&actP?actP:myName;if(!an)return;const dk=fD(cY,cM,ad);
 const inv=ai.length?ai:people.filter(p=>p.name!==an).map(p=>p.name);
-const loc=aloc.trim()?await geocode(aloc.trim()):null;
+const loc=aloc.trim()?await geocode(aloc.trim(),profile?.address):null;
 const na={person:an,date:dk,timeStart:ats,timeEnd:ate,description:adesc.trim(),location:aloc.trim()||"",coords:loc,invite:inv,id:Date.now(),uid:user.uid};
 db.ref(CP(crewId,"activities")).set([...acts,na]);sendNotif(db,an,inv,`${an} is doing "${adesc.trim()}"${aloc.trim()?" at "+aloc.trim():""} and invited you!`,allUsers,"activity",na.id);setAMO(false)};
 const delAct=id=>{const a=acts.find(x=>x.id===id);if(!canEdit&&a?.uid&&a.uid!==user.uid)return;const u=acts.filter(x=>x.id!==id);db.ref(CP(crewId,"activities")).set(u.length?u:null)};
@@ -249,9 +282,22 @@ const updated=JSON.parse(JSON.stringify(acts));
 if(updated[idx].responses?.[myName])updated[idx].responses[myName].hidden=true;
 db.ref(CP(crewId,"activities")).set(updated)};
 
+const saveActEdit=async(actId)=>{
+const idx=acts.findIndex(a=>a.id===actId);if(idx===-1)return;
+const updated=JSON.parse(JSON.stringify(acts));
+if(aeDesc.trim())updated[idx].description=aeDesc.trim();
+updated[idx].timeStart=aeTS;updated[idx].timeEnd=aeTE;
+updated[idx].date=aeDate||updated[idx].date;
+updated[idx].location=aeLoc.trim();
+if(aeLoc.trim()){const loc=await geocode(aeLoc.trim(),profile?.address);updated[idx].coords=loc}else{updated[idx].coords=null}
+db.ref(CP(crewId,"activities")).set(updated);
+setVA(updated[idx]);setActEdit(false)};
+
+const startActEdit=(a)=>{setAEDesc(a.description||"");setAETS(a.timeStart||"10:00");setAETE(a.timeEnd||"14:00");setAELoc(a.location||"");setAEDate(a.date||"");setActEdit(true)};
+
 const submitProp=async()=>{if(!pDay)return;const to=pst.length?pst:people.filter(p=>p.name!==myName).map(p=>p.name);
 const resp={};to.forEach(n=>{resp[n]={status:"pending",note:"",hidden:false}});
-const loc=ploc.trim()?await geocode(ploc.trim()):null;
+const loc=ploc.trim()?await geocode(ploc.trim(),profile?.address):null;
 const np={person:myName,date:pDay,timeStart:pts2,timeEnd:pte,notes:pn,location:ploc.trim()||"",coords:loc,sendTo:to,responses:resp,id:Date.now(),uid:user.uid};
 db.ref(CP(crewId,"proposals")).set([...props,np]);
 sendNotif(db,myName,to,`${myName} proposed: ${pn||"let's kick it!"}${ploc.trim()?" at "+ploc.trim():""} on ${pDay}`,allUsers,"proposal",np.id);
@@ -472,7 +518,12 @@ delete crew</button>}
 {/* Month */}
 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
 <button onClick={prevM} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,color:"#1e293b",padding:"8px 16px",cursor:"pointer",fontSize:18}}>‹</button>
-<h2 style={{fontSize:20,fontWeight:700,margin:0}}>{MN[cM]} {cY}</h2>
+<div style={{display:"flex",alignItems:"center",gap:6}}>
+<select value={cM} onChange={e=>setCM(parseInt(e.target.value))} style={{fontSize:18,fontWeight:700,border:"none",background:"none",color:"#1e293b",cursor:"pointer",outline:"none",fontFamily:"inherit",appearance:"none",WebkitAppearance:"none",padding:"4px 0",textAlign:"right"}}>
+{MN.map((m,i)=><option key={i} value={i}>{m}</option>)}</select>
+<select value={cY} onChange={e=>setCY(parseInt(e.target.value))} style={{fontSize:18,fontWeight:700,border:"none",background:"none",color:"#1e293b",cursor:"pointer",outline:"none",fontFamily:"inherit",appearance:"none",WebkitAppearance:"none",padding:"4px 0"}}>
+{Array.from({length:5},(_,i)=>today.getFullYear()-1+i).map(y=><option key={y} value={y}>{y}</option>)}</select>
+</div>
 <button onClick={nextM} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,color:"#1e293b",padding:"8px 16px",cursor:"pointer",fontSize:18}}>›</button></div>
 <p style={{color:"#94a3b8",fontSize:13,textAlign:"center",marginBottom:16}}>add your available times, find when everyone's free</p>
 
@@ -489,7 +540,10 @@ return(<div key={day} onClick={()=>setCD(day)} style={{minHeight:72,borderRadius
 background:isT?"rgba(224,64,251,0.06)":isPast?"#f8fafc":"#fff",opacity:isPast?0.5:1,
 border:hA?`2px solid ${aC}`:isT?"1.5px solid rgba(224,64,251,0.35)":"1px solid #f1f5f9",cursor:"pointer",transition:"background 0.15s"}}
 onMouseEnter={e=>{if(!isPast)e.currentTarget.style.background="#f1f5f9"}} onMouseLeave={e=>{e.currentTarget.style.background=isT?"rgba(224,64,251,0.06)":isPast?"#f8fafc":"#fff"}}>
-<div style={{fontSize:13,fontWeight:isT?700:500,color:isT?"#e040fb":isPast?"#cbd5e1":"#475569"}}>{day}</div>
+<div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+<span style={{fontSize:13,fontWeight:isT?700:500,color:isT?"#e040fb":isPast?"#cbd5e1":"#475569"}}>{day}</span>
+{dA.length>0&&!isPast&&<span style={{fontSize:10,color:aC||"#f59e0b"}}>★</span>}
+</div>
 <div style={{display:"flex",flexDirection:"column",gap:2,marginTop:3}}>
 {people.map(p=>{const dk=fD(cY,cM,day);return(bt[p.name]?.[dk]||[]).map((en,idx)=>(
 <div key={`${p.name}-${idx}`} onClick={e=>{e.stopPropagation();editBusy(p.name,dk,idx)}}
@@ -498,7 +552,7 @@ style={{fontSize:9,background:p.color+"20",color:p.color,borderRadius:4,padding:
 {dA.map(a=>{const c=people.find(p=>p.name===a.person)?.color||"#e040fb";const myActSt=a.responses?.[myName]?.status;
 const chipC=myActSt==="accepted"?"#22c55e":myActSt==="declined"?"#94a3b8":myActSt==="raincheck"?"#f59e0b":c;
 return(
-<div key={a.id} onClick={e=>{e.stopPropagation();setVA(a);setARM(null);setARN("");setActRcDate("");setActRcTS("14:00");setActRcTE("17:00")}} style={{fontSize:9,background:chipC+"20",color:chipC,borderRadius:4,padding:"2px 4px",fontWeight:600,borderLeft:`3px solid ${chipC}`,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{myActSt==="accepted"?"✓":myActSt==="declined"?"✗":myActSt==="raincheck"?"⏳":"★"} {a.description.slice(0,12)}</div>)})}
+<div key={a.id} onClick={e=>{e.stopPropagation();setVA(a);setActEdit(false);setARM(null);setARN("");setActRcDate("");setActRcTS("14:00");setActRcTE("17:00")}} style={{fontSize:9,background:chipC+"20",color:chipC,borderRadius:4,padding:"2px 4px",fontWeight:600,borderLeft:`3px solid ${chipC}`,cursor:"pointer",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{myActSt==="accepted"?"✓":myActSt==="declined"?"✗":myActSt==="raincheck"?"⏳":"★"} {a.description.slice(0,12)}</div>)})}
 {dP.map(pr=>{const sC=people.find(p=>p.name===pr.person)?.color||"#e040fb";const mySt=getMyStatus(pr);const stC=getStatusColor(mySt);
 return(<div key={pr.id} onClick={e=>{e.stopPropagation();setRM(pr);setRN("");setRCDate("");setRCTS("14:00");setRCTE("17:00");setRespMode(null);recordSeen(pr.id)}}
 style={{fontSize:9,background:mySt==="accepted"?"#22c55e20":mySt==="declined"?"#94a3b820":sC+"15",
@@ -521,7 +575,7 @@ borderRadius:4,padding:"2px 4px",fontWeight:600,borderLeft:`3px dashed ${stC}`,c
 {(()=>{const ua=acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);return new Date(y,m-1,d)>=today});
 return!ua.length?<p style={{color:"#94a3b8",fontSize:14,fontStyle:"italic"}}>no upcoming activities</p>:
 ua.map(a=>{const c=people.find(p=>p.name===a.person)?.color||"#e040fb";const[y,m,d]=a.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
-return(<div key={a.id} onClick={()=>{setVA(a);setARM(null);setARN("");setActRcDate("");setActRcTS("14:00");setActRcTE("17:00")}} style={{padding:"14px 16px",marginBottom:8,background:c+"08",borderRadius:12,borderLeft:`4px solid ${c}`,position:"relative",cursor:"pointer"}}>
+return(<div key={a.id} onClick={()=>{const[ay,am]=a.date.split("-").map(Number);setCM(am-1);setCY(ay);setVA(a);setActEdit(false);setARM(null);setARN("");setActRcDate("");setActRcTS("14:00");setActRcTE("17:00")}} style={{padding:"14px 16px",marginBottom:8,background:c+"08",borderRadius:12,borderLeft:`4px solid ${c}`,position:"relative",cursor:"pointer"}}>
 {(canEdit||!a.uid||a.uid===user.uid)&&<button onClick={e=>{e.stopPropagation();delAct(a.id)}} style={{position:"absolute",top:10,right:12,background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:16,lineHeight:1}}>×</button>}
 <div style={{fontWeight:700,fontSize:14,color:c}}>{a.person}</div>
 <div style={{fontSize:13,color:"#475569",marginTop:2}}>{dl} · {fTD(pT(a.timeStart))} – {fTD(pT(a.timeEnd))}</div>
@@ -576,7 +630,8 @@ return<><button onClick={()=>setPST(allSel?[]:others.map(p=>p.name))} style={{pa
 <div><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>notes</label>
 <textarea value={pn} onChange={e=>setPN(e.target.value)} placeholder="taco spot? movie night? park hangs?" rows={3} style={{...iS,resize:"vertical",fontFamily:"inherit"}}/></div>
 <div><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>where? <span style={{fontWeight:400,color:"#94a3b8"}}>(optional)</span></label>
-<input value={ploc} onChange={e=>setPLoc(e.target.value)} placeholder="address, park, restaurant..." style={iS}/></div>
+<input value={ploc} onChange={e=>setPLoc(e.target.value)} placeholder="address, park, restaurant..." style={iS}/>
+<MiniMap location={ploc} bias={profile?.address}/></div>
 <button onClick={submitProp} disabled={!pDay} style={{...bP,alignSelf:"flex-start",background:!pDay?"#cbd5e1":"linear-gradient(135deg,#60a5fa,#4ecdc4)",cursor:!pDay?"not-allowed":"pointer"}}>can we kick it?</button></div>
 
 {/* Proposals list */}
@@ -679,7 +734,8 @@ return<><button onClick={()=>setAI(allSelected?[]:others.map(p=>p.name))} style=
 <div style={{marginBottom:20}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>what?</label>
 <input value={adesc} onChange={e=>setADesc(e.target.value)} placeholder="farmer's market, hiking, brunch..." style={iS}/></div>
 <div style={{marginBottom:20}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>where? <span style={{fontWeight:400,color:"#94a3b8"}}>(optional)</span></label>
-<input value={aloc} onChange={e=>setALoc(e.target.value)} placeholder="address, park name, restaurant..." style={iS}/></div>
+<input value={aloc} onChange={e=>setALoc(e.target.value)} placeholder="address, park name, restaurant..." style={iS}/>
+<MiniMap location={aloc} bias={profile?.address}/></div>
 <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}><button onClick={()=>setAMO(false)} style={{background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 18px",fontSize:14,cursor:"pointer"}}>cancel</button>
 <button onClick={saveAct} disabled={!adesc.trim()} style={{...bP,background:!adesc.trim()?"#cbd5e1":myColor,cursor:!adesc.trim()?"not-allowed":"pointer"}}>can we kick it</button></div></Modal>
 
@@ -751,16 +807,41 @@ return(<span key={name} style={{fontSize:12,color:pc,fontWeight:600}}>{name}</sp
 </Modal>
 
 {/* ACTIVITY DETAIL MODAL */}
-<Modal isOpen={viewAct!==null} onClose={()=>setVA(null)}>
+<Modal isOpen={viewAct!==null} onClose={()=>{setVA(null);setActEdit(false)}}>
 {viewAct&&(()=>{
 const a=viewAct;const c=people.find(p=>p.name===a.person)?.color||"#e040fb";
 const[y,m,d]=a.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"});
 const isOwner2=a.person===myName;const isInvited=Array.isArray(a.invite)?a.invite.includes(myName):false;
+const canEditAct=isOwner2||canEdit;
 const resp=a.responses||{};const myResp=resp[myName]?.status;
 return(<>
+{/* Edit mode */}
+{actEdit?(<>
+<h3 style={{margin:"0 0 12px",fontSize:18,fontWeight:700,color:c}}>edit activity</h3>
+<div style={{display:"flex",flexDirection:"column",gap:12}}>
+<div><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:4}}>what</label>
+<input value={aeDesc} onChange={e=>setAEDesc(e.target.value)} style={iS}/></div>
+<div><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:4}}>date</label>
+<input type="date" value={aeDate} onChange={e=>setAEDate(e.target.value)} style={iS}/></div>
+<div style={{display:"flex",gap:12}}>
+<div style={{flex:1}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:4}}>from</label>
+<input type="time" value={aeTS} onChange={e=>setAETS(e.target.value)} style={iS}/></div>
+<div style={{flex:1}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:4}}>to</label>
+<input type="time" value={aeTE} onChange={e=>setAETE(e.target.value)} style={iS}/></div></div>
+<div><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:4}}>where <span style={{fontWeight:400,color:"#94a3b8"}}>(optional)</span></label>
+<input value={aeLoc} onChange={e=>setAELoc(e.target.value)} placeholder="address, park, restaurant..." style={iS}/>
+<MiniMap location={aeLoc} bias={profile?.address}/></div>
+<div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+<button onClick={()=>setActEdit(false)} style={{background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0",borderRadius:10,padding:"10px 18px",fontSize:14,cursor:"pointer"}}>cancel</button>
+<button onClick={()=>saveActEdit(a.id)} disabled={!aeDesc.trim()} style={{background:!aeDesc.trim()?"#cbd5e1":c,color:"#fff",border:"none",borderRadius:10,padding:"10px 18px",fontSize:14,fontWeight:600,cursor:!aeDesc.trim()?"not-allowed":"pointer"}}>save</button>
+</div></div>
+</>):(<>
+{/* View mode */}
 <h3 style={{margin:"0 0 4px",fontSize:18,fontWeight:700,color:c}}>★ {a.description}</h3>
 <div style={{marginTop:8}}>
-<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}><div style={{width:10,height:10,borderRadius:"50%",background:c}}/><span style={{fontSize:14,fontWeight:600}}>{a.person}</span></div>
+<div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}><div style={{width:10,height:10,borderRadius:"50%",background:c}}/><span style={{fontSize:14,fontWeight:600}}>{a.person}</span>
+{canEditAct&&<button onClick={()=>startActEdit(a)} style={{marginLeft:"auto",background:"none",border:"1px solid #e2e8f0",borderRadius:8,padding:"4px 12px",fontSize:12,fontWeight:600,color:"#64748b",cursor:"pointer"}}>edit</button>}
+</div>
 <div style={{fontSize:13,color:"#475569"}}>{dl} · {fTD(pT(a.timeStart))} – {fTD(pT(a.timeEnd))}</div>
 {a.location&&<div style={{fontSize:13,color:"#64748b",marginTop:4}}>📍 {a.location}</div>}
 {a.invite&&<div style={{fontSize:13,color:"#94a3b8",marginTop:6}}>invited: {Array.isArray(a.invite)?a.invite.join(", "):a.invite}</div>}
@@ -816,6 +897,7 @@ style={{padding:"10px 18px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"p
 <div style={{marginTop:12,padding:"10px 14px",background:SC[myResp]+"15",borderRadius:10,display:"flex",alignItems:"center",gap:8}}>
 <div style={{width:10,height:10,borderRadius:"50%",background:SC[myResp]||"#94a3b8"}}/>
 <span style={{fontSize:14,fontWeight:600,color:SC[myResp]||"#94a3b8"}}>you responded: {myResp==="accepted"?"yes we can!":myResp==="declined"?"womp womp":"raincheck?"}</span></div>)}
+</>)}
 </>)})()}
 </Modal>
 
@@ -824,8 +906,11 @@ style={{padding:"10px 18px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"p
 /* ===== MAP PAGE ===== */
 function MapPage({user,profile,allUsers,people,crewId,onBack}){
 const mapRef=useRef(null);const mapInst=useRef(null);
+const markersRef=useRef({});
+const today=new Date();
 const[acts,setActs]=useState([]);const[props,setProps]=useState([]);
 const[loading,setLoading]=useState(true);
+const[fM,setFM]=useState(today.getMonth());const[fY,setFY]=useState(today.getFullYear());
 const myName=profile?.name||"";
 const isAdmin=(profile?.email||"").toLowerCase()===ADMIN.toLowerCase();
 
@@ -843,35 +928,44 @@ mapInst.current=map;
 setTimeout(()=>map.invalidateSize(),100);
 return()=>{if(mapInst.current){mapInst.current.remove();mapInst.current=null}}},[]);
 
+const zoomTo=(id)=>{const mk=markersRef.current[id];if(mk&&mapInst.current){mapInst.current.setView(mk.getLatLng(),15);mk.openPopup()}};
+
 useEffect(()=>{
 if(!mapInst.current)return;
 const map=mapInst.current;
 map.eachLayer(l=>{if(l instanceof L.Marker||l instanceof L.CircleMarker)map.removeLayer(l)});
-const bounds=[];const today=new Date();
+markersRef.current={};
+const bounds=[];const td=new Date();
+const filterDate=(dateStr)=>{const[y,m,d]=dateStr.split("-").map(Number);const dt=new Date(y,m-1,d);
+if(dt<td)return false;
+if(fM!==null&&(m-1!==fM||y!==fY))return false;
+return true};
 
 const makeIcon=(color)=>L.divIcon({className:"",html:`<div style="width:28px;height:28px;border-radius:50%;background:${color};border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center"></div>`,iconSize:[28,28],iconAnchor:[14,14]});
 
-acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);return new Date(y,m-1,d)>=today&&a.coords}).forEach(a=>{
+acts.filter(a=>a.coords&&filterDate(a.date)).forEach(a=>{
 const c=people.find(p=>p.name===a.person)?.color||"#e040fb";
 const[y,m,d]=a.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
 const mk=L.marker([a.coords.lat,a.coords.lng],{icon:makeIcon(c)}).addTo(map);
 mk.bindPopup(`<div style="font-family:'DM Sans',sans-serif;min-width:180px"><div style="font-weight:700;color:${c}">★ ${a.description}</div><div style="font-size:12px;color:#475569;margin-top:4px">${a.person} · ${dl}</div><div style="font-size:12px;color:#475569">${fTD(pT(a.timeStart))} – ${fTD(pT(a.timeEnd))}</div>${a.location?`<div style="font-size:12px;color:#64748b;margin-top:4px">📍 ${a.location}</div>`:""}</div>`);
+markersRef.current[`act-${a.id}`]=mk;
 bounds.push([a.coords.lat,a.coords.lng])});
 
-props.filter(p=>{const[y,m,d]=p.date.split("-").map(Number);return new Date(y,m-1,d)>=today&&p.coords}).forEach(pr=>{
+props.filter(p=>p.coords&&filterDate(p.date)).forEach(pr=>{
 const c=people.find(p=>p.name===pr.person)?.color||"#60a5fa";
 const[y,m,d]=pr.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
 const resp=pr.responses||{};const accepted=Object.entries(resp).filter(([,r])=>r.status==="accepted").length;
 const mk=L.marker([pr.coords.lat,pr.coords.lng],{icon:makeIcon(c)}).addTo(map);
 mk.bindPopup(`<div style="font-family:'DM Sans',sans-serif;min-width:180px"><div style="font-weight:700;color:${c}">📩 ${pr.notes||"hangout"}</div><div style="font-size:12px;color:#475569;margin-top:4px">${pr.person} · ${dl}</div><div style="font-size:12px;color:#475569">${fTD(pT(pr.timeStart))} – ${fTD(pT(pr.timeEnd))}</div>${pr.location?`<div style="font-size:12px;color:#64748b;margin-top:4px">📍 ${pr.location}</div>`:""}<div style="font-size:11px;color:#22c55e;margin-top:4px">${accepted} confirmed</div></div>`);
+markersRef.current[`prop-${pr.id}`]=mk;
 bounds.push([pr.coords.lat,pr.coords.lng])});
 
 const adminProfile=Object.values(allUsers).find(u=>(u.email||"").toLowerCase()===ADMIN.toLowerCase());
 Object.values(allUsers).filter(u=>u.name&&u.address&&u.address.trim()).forEach(u=>{
 if(!isAdmin&&adminProfile&&u.name===adminProfile.name)return;
-const c=people.find(p=>p.name===u.name)?.color||"#94a3b8";
+const c=u.color||people.find(p=>p.name===u.name)?.color||"#94a3b8";
 geocode(u.address).then(loc=>{if(loc&&mapInst.current){
-const mk=L.circleMarker([loc.lat,loc.lng],{radius:10,fillColor:c,color:"#fff",weight:2,opacity:1,fillOpacity:0.7}).addTo(mapInst.current);
+const mk=L.marker([loc.lat,loc.lng],{icon:L.divIcon({className:"",html:`<svg width="24" height="34" viewBox="0 0 24 34" xmlns="http://www.w3.org/2000/svg"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 22 12 22s12-13 12-22C24 5.4 18.6 0 12 0z" fill="${c}"/><circle cx="12" cy="12" r="5" fill="#fff"/></svg>`,iconSize:[24,34],iconAnchor:[12,34],popupAnchor:[0,-30]})}).addTo(mapInst.current);
 mk.bindPopup(`<div style="font-family:'DM Sans',sans-serif"><div style="font-weight:700;color:${c}">${u.name}</div><div style="font-size:12px;color:#94a3b8;margin-top:2px">📍 general area</div></div>`);
 bounds.push([loc.lat,loc.lng]);
 if(bounds.length>1)mapInst.current.fitBounds(bounds,{padding:[40,40]})}})});
@@ -879,36 +973,48 @@ if(bounds.length>1)mapInst.current.fitBounds(bounds,{padding:[40,40]})}})});
 if(bounds.length>1)setTimeout(()=>{if(mapInst.current)mapInst.current.fitBounds(bounds,{padding:[40,40]})},500);
 else if(bounds.length===1)setTimeout(()=>{if(mapInst.current)mapInst.current.setView(bounds[0],13)},500);
 setLoading(false);
-},[acts,props,people,allUsers]);
+},[acts,props,people,allUsers,fM,fY]);
 
 return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fafc",minHeight:"100vh",color:"#1e293b",padding:"24px 16px"}}><div style={{maxWidth:860,margin:"0 auto"}}>
 <button onClick={onBack} style={{background:"none",border:"none",color:"#64748b",cursor:"pointer",fontSize:14,fontWeight:600,marginBottom:20}}>‹ back</button>
 <h1 style={{fontFamily:"'Nunito',sans-serif",fontSize:28,fontWeight:800,marginBottom:8,
 background:"linear-gradient(135deg,#e040fb,#4ECDC4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>crew map</h1>
 <p style={{color:"#94a3b8",fontSize:14,marginBottom:16}}>activities, proposals, and your crew's general areas</p>
-<div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:16,fontSize:12,color:"#64748b"}}>
-<span>● colored circles = activities & proposals</span>
-<span>○ faded circles = friend areas</span>
+<div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:12,fontSize:12,color:"#64748b"}}>
+<span>● colored dots = activities & proposals</span>
+<span>📍 colored pins = friend areas</span>
+</div>
+<div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
+<span style={{fontSize:12,fontWeight:600,color:"#64748b"}}>filter:</span>
+<button onClick={()=>setFM(null)} style={{padding:"5px 12px",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",
+background:fM===null?"#e040fb":"#f8fafc",color:fM===null?"#fff":"#64748b",border:fM===null?"none":"1px solid #e2e8f0"}}>all upcoming</button>
+{MN.map((m,i)=>{const isActive=fM===i;return(
+<button key={i} onClick={()=>{setFM(i);setFY(i>=today.getMonth()?today.getFullYear():today.getFullYear()+1)}} style={{padding:"5px 10px",borderRadius:8,fontSize:11,fontWeight:600,cursor:"pointer",
+background:isActive?"#e040fb":"#f8fafc",color:isActive?"#fff":"#94a3b8",border:isActive?"none":"1px solid #e2e8f0"}}>{m.slice(0,3)}</button>)})}
 </div>
 <div ref={mapRef} style={{height:480,borderRadius:12,border:"1px solid #e2e8f0",boxShadow:"0 2px 8px rgba(0,0,0,0.08)",marginBottom:20,background:"#e2e8f0"}}/>
 {loading&&<p style={{color:"#94a3b8",fontSize:13,textAlign:"center"}}>loading map...</p>}
 <div style={{marginTop:8}}>
-{acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);return new Date(y,m-1,d)>=new Date()&&a.location}).length>0&&(<>
+{acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);const dt=new Date(y,m-1,d);if(dt<new Date())return false;if(fM!==null&&(m-1!==fM||y!==fY))return false;return!!a.location}).length>0&&(<>
 <h3 style={{fontSize:16,fontWeight:700,marginBottom:8}}>upcoming activities with locations</h3>
-{acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);return new Date(y,m-1,d)>=new Date()&&a.location}).map(a=>{const c=people.find(p=>p.name===a.person)?.color||"#e040fb";
+{acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);const dt=new Date(y,m-1,d);if(dt<new Date())return false;if(fM!==null&&(m-1!==fM||y!==fY))return false;return!!a.location}).map(a=>{const c=people.find(p=>p.name===a.person)?.color||"#e040fb";
 const[y,m,d]=a.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
-return(<div key={a.id} style={{padding:"10px 14px",marginBottom:6,background:c+"08",borderRadius:10,borderLeft:`4px solid ${c}`}}>
+return(<div key={a.id} onClick={()=>a.coords&&zoomTo(`act-${a.id}`)} style={{padding:"10px 14px",marginBottom:6,background:c+"08",borderRadius:10,borderLeft:`4px solid ${c}`,cursor:a.coords?"pointer":"default"}}>
 <div style={{fontWeight:600,fontSize:13,color:c}}>★ {a.description}</div>
 <div style={{fontSize:12,color:"#475569"}}>{a.person} · {dl} · {fTD(pT(a.timeStart))} – {fTD(pT(a.timeEnd))}</div>
-<div style={{fontSize:12,color:"#64748b"}}>📍 {a.location}</div></div>)})}</>)}
-{props.filter(p=>{const[y,m,d]=p.date.split("-").map(Number);return new Date(y,m-1,d)>=new Date()&&p.location}).length>0&&(<>
+<div style={{fontSize:12,color:"#64748b"}}>📍 {a.location}</div>
+{a.coords&&<div style={{fontSize:10,color:c,marginTop:4}}>tap to view on map ↑</div>}
+</div>)})}</>)}
+{props.filter(p=>{const[y,m,d]=p.date.split("-").map(Number);const dt=new Date(y,m-1,d);if(dt<new Date())return false;if(fM!==null&&(m-1!==fM||y!==fY))return false;return!!p.location}).length>0&&(<>
 <h3 style={{fontSize:16,fontWeight:700,marginBottom:8,marginTop:16}}>proposals with locations</h3>
-{props.filter(p=>{const[y,m,d]=p.date.split("-").map(Number);return new Date(y,m-1,d)>=new Date()&&p.location}).map(pr=>{const c=people.find(p=>p.name===pr.person)?.color||"#60a5fa";
+{props.filter(p=>{const[y,m,d]=p.date.split("-").map(Number);const dt=new Date(y,m-1,d);if(dt<new Date())return false;if(fM!==null&&(m-1!==fM||y!==fY))return false;return!!p.location}).map(pr=>{const c=people.find(p=>p.name===pr.person)?.color||"#60a5fa";
 const[y,m,d]=pr.date.split("-").map(Number);const dl=new Date(y,m-1,d).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
-return(<div key={pr.id} style={{padding:"10px 14px",marginBottom:6,background:c+"08",borderRadius:10,borderLeft:`4px dashed ${c}`}}>
+return(<div key={pr.id} onClick={()=>pr.coords&&zoomTo(`prop-${pr.id}`)} style={{padding:"10px 14px",marginBottom:6,background:c+"08",borderRadius:10,borderLeft:`4px dashed ${c}`,cursor:pr.coords?"pointer":"default"}}>
 <div style={{fontWeight:600,fontSize:13,color:c}}>📩 {pr.notes||"hangout"}</div>
 <div style={{fontSize:12,color:"#475569"}}>{pr.person} · {dl} · {fTD(pT(pr.timeStart))} – {fTD(pT(pr.timeEnd))}</div>
-<div style={{fontSize:12,color:"#64748b"}}>📍 {pr.location}</div></div>)})}</>)}
+<div style={{fontSize:12,color:"#64748b"}}>📍 {pr.location}</div>
+{pr.coords&&<div style={{fontSize:10,color:c,marginTop:4}}>tap to view on map ↑</div>}
+</div>)})}</>)}
 </div>
 </div></div>)}
 
@@ -1141,7 +1247,7 @@ else if(m.name!==myName&&map[m.name])map[m.name].crews.push(crew.name)})});
 return Object.values(map)},[crewData,userCrews,myName]);
 
 const submitXProp=async()=>{if(!xDay||xTo.length===0)return;
-const loc=xLoc.trim()?await geocode(xLoc.trim()):null;
+const loc=xLoc.trim()?await geocode(xLoc.trim(),profile?.address):null;
 const resp={};xTo.forEach(n=>{resp[n]={status:"pending",note:"",hidden:false}});
 const np={person:myName,date:xDay,timeStart:xTS,timeEnd:xTE,notes:xNote,location:xLoc.trim()||"",coords:loc,sendTo:xTo,responses:resp,id:Date.now(),uid:user.uid,_global:true};
 db.ref(P("globalProposals")).push(np);
@@ -1261,7 +1367,12 @@ return(<button key={c.id} onClick={()=>onSelectCrew(c.id)} style={{display:"flex
 {/* Month nav */}
 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
 <button onClick={prevM} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,color:"#1e293b",padding:"8px 16px",cursor:"pointer",fontSize:18}}>‹</button>
-<h2 style={{fontSize:20,fontWeight:700,margin:0}}>{MN[cM]} {cY}</h2>
+<div style={{display:"flex",alignItems:"center",gap:6}}>
+<select value={cM} onChange={e=>setCM(parseInt(e.target.value))} style={{fontSize:18,fontWeight:700,border:"none",background:"none",color:"#1e293b",cursor:"pointer",outline:"none",fontFamily:"inherit",appearance:"none",WebkitAppearance:"none",padding:"4px 0",textAlign:"right"}}>
+{MN.map((m,i)=><option key={i} value={i}>{m}</option>)}</select>
+<select value={cY} onChange={e=>setCY(parseInt(e.target.value))} style={{fontSize:18,fontWeight:700,border:"none",background:"none",color:"#1e293b",cursor:"pointer",outline:"none",fontFamily:"inherit",appearance:"none",WebkitAppearance:"none",padding:"4px 0"}}>
+{Array.from({length:5},(_,i)=>today.getFullYear()-1+i).map(y=><option key={y} value={y}>{y}</option>)}</select>
+</div>
 <button onClick={nextM} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:10,color:"#1e293b",padding:"8px 16px",cursor:"pointer",fontSize:18}}>›</button></div>
 
 {loading?<div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:14}}>loading all crews...</div>:(<>
@@ -1281,7 +1392,10 @@ background:isT?"rgba(224,64,251,0.06)":isPast?"#f8fafc":"#fff",opacity:isPast?0.
 border:hasOverlap&&!isPast?"2px solid #e040fb":isT?"1.5px solid rgba(224,64,251,0.35)":"1px solid #f1f5f9",cursor:"default",transition:"background 0.15s"}}>
 <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
 <span style={{fontSize:13,fontWeight:isT?700:500,color:isT?"#e040fb":isPast?"#cbd5e1":"#475569"}}>{day}</span>
+<div style={{display:"flex",gap:2}}>
+{items.some(i=>i.type==="act")&&!isPast&&<span style={{fontSize:10,color:"#f59e0b"}}>★</span>}
 {hasOverlap&&!isPast&&<span style={{fontSize:8,color:"#e040fb",fontWeight:700}}>●</span>}
+</div>
 </div>
 <div style={{display:"flex",flexDirection:"column",gap:2,marginTop:3}}>
 {items.slice(0,3).map((item,idx)=>{
@@ -1380,7 +1494,8 @@ return<div key={n} style={{display:"flex",alignItems:"center",gap:4,background:c
 <div><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>notes</label>
 <textarea value={xNote} onChange={e=>setXNote(e.target.value)} placeholder="what's the plan?" rows={2} style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:14,outline:"none",background:"#f8fafc",color:"#1e293b",boxSizing:"border-box",resize:"vertical",fontFamily:"inherit"}}/></div>
 <div><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>where? <span style={{fontWeight:400,color:"#94a3b8"}}>(optional)</span></label>
-<input value={xLoc} onChange={e=>setXLoc(e.target.value)} placeholder="address, park, restaurant..." style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:14,outline:"none",background:"#f8fafc",color:"#1e293b",boxSizing:"border-box"}}/></div>
+<input value={xLoc} onChange={e=>setXLoc(e.target.value)} placeholder="address, park, restaurant..." style={{width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #e2e8f0",fontSize:14,outline:"none",background:"#f8fafc",color:"#1e293b",boxSizing:"border-box"}}/>
+<MiniMap location={xLoc} bias={profile?.address}/></div>
 <button onClick={submitXProp} disabled={!xDay||xTo.length===0} style={{alignSelf:"flex-start",padding:"10px 22px",borderRadius:10,fontSize:14,fontWeight:600,cursor:(!xDay||xTo.length===0)?"not-allowed":"pointer",
 background:(!xDay||xTo.length===0)?"#cbd5e1":"linear-gradient(135deg,#e040fb,#60a5fa)",color:"#fff",border:"none",letterSpacing:0.3}}>can we kick it?</button>
 </div></div>
