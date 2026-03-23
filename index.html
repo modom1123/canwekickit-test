@@ -160,6 +160,7 @@ style={{padding:"14px 16px",marginBottom:8,background:n.read?"#fff":c+"08",borde
 
 /* ===== MAIN APP ===== */
 function Main({user,profile,allUsers,crewId,crewInfo,userCrews,onSettings,onNotifs,onFAQ,onMap,onSwitchCrew,onSelectCrew,onInvite,onArchiveCrew,onDeleteCrew,openProposalId,clearOpenProposal,openActId,clearOpenAct}){
+const[sideOpen,setSO]=useState(false);
 const today=new Date();
 const[cM,setCM]=useState(today.getMonth());const[cY,setCY]=useState(today.getFullYear());
 const[bt,setBT]=useState({});const[people,setPpl]=useState([]);
@@ -335,7 +336,43 @@ const iS={background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:8,padding
 const bP={background:"#e040fb",color:"#fff",border:"none",borderRadius:10,padding:"10px 22px",fontSize:14,fontWeight:600,cursor:"pointer",letterSpacing:0.3};
 const sS={background:"#fff",borderRadius:16,border:"1px solid #e2e8f0",padding:22,marginBottom:24,boxShadow:"0 1px 3px rgba(0,0,0,0.04)"};
 
-return(<><div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fafc",minHeight:"100vh",color:"#1e293b",padding:"24px 16px"}}><div style={{maxWidth:860,margin:"0 auto"}}>
+return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fafc",minHeight:"100vh",color:"#1e293b",display:"flex"}}>
+{/* LEFT SIDEBAR */}
+<div style={{width:sideOpen?220:56,minHeight:"100vh",background:"#fff",borderRight:"1px solid #e2e8f0",transition:"width 0.25s",overflow:"hidden",flexShrink:0,position:"sticky",top:0,height:"100vh",display:"flex",flexDirection:"column",zIndex:50}}>
+<button onClick={()=>setSO(!sideOpen)} style={{background:"none",border:"none",cursor:"pointer",padding:16,display:"flex",alignItems:"center",gap:10,width:"100%",borderBottom:"1px solid #f1f5f9"}}>
+<span style={{fontSize:20}}>{sideOpen?"✕":"☰"}</span>
+{sideOpen&&<span style={{fontSize:13,fontWeight:700,color:"#1e293b",whiteSpace:"nowrap"}}>menu</span>}
+</button>
+<div style={{padding:8,flex:1,display:"flex",flexDirection:"column",gap:2}}>
+{[["🔔","notifications",onNotifs,uc],["🗺️","crew map",onMap,0],["📅","calendars",onSwitchCrew,0]].map(function(x){return(
+<button key={x[1]} onClick={x[2]} style={{display:"flex",alignItems:"center",gap:10,padding:sideOpen?"10px 12px":"10px 14px",borderRadius:10,background:"none",border:"none",cursor:"pointer",width:"100%",textAlign:"left",position:"relative"}}>
+<span style={{fontSize:18,flexShrink:0,width:24,textAlign:"center"}}>{x[0]}</span>
+{sideOpen&&<span style={{fontSize:13,fontWeight:600,color:"#475569",whiteSpace:"nowrap"}}>{x[1]}</span>}
+{x[3]>0&&<span style={{position:sideOpen?"static":"absolute",top:4,right:4,background:"#ef4444",color:"#fff",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:700,marginLeft:sideOpen?"auto":0}}>{x[3]}</span>}
+</button>)})}
+</div>
+{sideOpen&&<div style={{padding:"0 8px 8px",borderTop:"1px solid #f1f5f9"}}>
+<div style={{fontSize:10,fontWeight:700,color:"#94a3b8",textTransform:"uppercase",letterSpacing:0.5,padding:"10px 12px 6px"}}>crews</div>
+{(userCrews||[]).map(function(c){return(
+<button key={c.id} onClick={function(){onSelectCrew(c.id)}} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 12px",borderRadius:8,background:c.id===crewId?"#e040fb10":"transparent",border:c.id===crewId?"1px solid #e040fb30":"1px solid transparent",cursor:"pointer",width:"100%",textAlign:"left"}}>
+<span style={{fontSize:16}}>{c.icon||"🎯"}</span>
+<span style={{fontSize:12,fontWeight:c.id===crewId?700:500,color:c.id===crewId?"#e040fb":"#64748b",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.name}</span>
+</button>)})}
+</div>}
+<div style={{padding:8,borderTop:"1px solid #f1f5f9"}}>
+{[["⚙️","settings",onSettings],["❓","FAQ",onFAQ]].map(function(x){return(
+<button key={x[1]} onClick={x[2]} style={{display:"flex",alignItems:"center",gap:10,padding:sideOpen?"8px 12px":"8px 14px",borderRadius:10,background:"none",border:"none",cursor:"pointer",width:"100%",textAlign:"left"}}>
+<span style={{fontSize:16,flexShrink:0,width:24,textAlign:"center"}}>{x[0]}</span>
+{sideOpen&&<span style={{fontSize:12,fontWeight:500,color:"#64748b",whiteSpace:"nowrap"}}>{x[1]}</span>}
+</button>)})}
+<button onClick={function(){au.signOut()}} style={{display:"flex",alignItems:"center",gap:10,padding:sideOpen?"8px 12px":"8px 14px",borderRadius:10,background:"none",border:"none",cursor:"pointer",width:"100%",textAlign:"left"}}>
+<span style={{fontSize:16,flexShrink:0,width:24,textAlign:"center"}}>🚪</span>
+{sideOpen&&<span style={{fontSize:12,fontWeight:500,color:"#ef4444",whiteSpace:"nowrap"}}>sign out</span>}
+</button>
+</div>
+</div>
+{/* MAIN CONTENT */}
+<div style={{flex:1,padding:"24px 16px",minWidth:0,overflowX:"hidden"}}><div style={{maxWidth:860,margin:"0 auto"}}>
 
 {/* Sandbox banner */}
 {SANDBOX&&<div style={{background:"#f59e0b",color:"#fff",textAlign:"center",padding:"6px 0",fontSize:12,fontWeight:700,borderRadius:8,marginBottom:12,letterSpacing:0.5}}>⚠ SANDBOX MODE</div>}
@@ -742,7 +779,7 @@ style={{padding:"10px 18px",borderRadius:10,fontSize:14,fontWeight:600,cursor:"p
 </>)})()}
 </Modal>
 
-</div></>)}
+</div></div>)}
 
 /* ===== MAP PAGE ===== */
 function MapPage({user,profile,allUsers,people,crewId,onBack}){
