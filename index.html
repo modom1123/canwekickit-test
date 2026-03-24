@@ -100,12 +100,18 @@ bigpicture:[
 {id:"tour-bp-xcrew",title:"cross-crew proposals",desc:"invite friends from different crews to one hangout. search by name, pick a day and time, and everyone gets notified — even if they're in different crews.",pos:"top"},
 ],
 crew:[
-{id:"tour-sidebar",title:"the sidebar",desc:"quick access to everything — notifications, crew map, calendars, settings, and more. tap the ☰ to expand it. your crews are listed at the bottom for fast switching.",pos:"right"},
-{id:"tour-crew-header",title:"your crew",desc:"this shows who's in the current crew. use + invite to add friends, switch to jump between crews, or ⋯ to archive/delete.",pos:"bottom"},
+{id:"tour-sidebar",title:"the sidebar",desc:"your navigation hub. tap ☰ to expand it and see labels. your crews are listed at the bottom for fast switching between groups.",pos:"right"},
+{id:"tour-crewmap",title:"crew map",desc:"see your crew's activities, proposals, and everyone's general location on an interactive map. filter by month to find what's happening near you.",pos:"right"},
+{id:"tour-calendars",title:"calendars",desc:"switch between your crews here. each crew has its own calendar, members, activities, and proposals — completely separate from the others.",pos:"right"},
+{id:"tour-bigpicture",title:"the big picture",desc:"jump to the big picture — a merged calendar showing everything from all your crews at once. great for seeing what's happening across your whole social circle.",pos:"right"},
+{id:"tour-settings",title:"settings",desc:"update your name, color, address, phone, and notification preferences. your address helps the app find nearby venues when you type a location.",pos:"right"},
+{id:"tour-faq",title:"FAQ",desc:"answers to common questions about how availability, activities, proposals, responses, and the calendar work.",pos:"right"},
+{id:"tour-signout",title:"sign out",desc:"signs you out of your account. your data stays safe — just sign back in to pick up where you left off.",pos:"right"},
+{id:"tour-crew-header",title:"your crew",desc:"this shows who's in the current crew. use + invite to add friends by name or email, switch to jump between crews, or ⋯ to archive or delete.",pos:"bottom"},
 {id:"tour-calendar",title:"the calendar",desc:"tap any day to add your available time or create an activity. everyone's availability shows in their color. ★ marks days with activities.",pos:"top"},
-{id:"tour-whats-happening",title:"what's happening",desc:"upcoming activities your crew has planned. tap any one to see details, respond (yes we can!, womp womp, raincheck), or edit if you created it.",pos:"top"},
+{id:"tour-whats-happening",title:"what's happening",desc:"this is where your crew's plans come to life. add events you're interested in attending — concerts, hikes, restaurant openings — or things you'd like to do with others. invite specific people or the whole crew. tap any event to see details, respond, or edit.",pos:"top"},
 {id:"tour-overlap",title:"can we kick it?",desc:"the app finds days and times where you overlap with at least one other person for 3+ hours. filter by specific friends or check overlap with everyone.",pos:"top"},
-{id:"tour-proposal",title:"hangout proposals",desc:"suggest a hangout — pick who to invite, choose a day, add a note about what you want to do, and optionally add a location with a map preview.",pos:"top"},
+{id:"tour-proposal",title:"hangout proposals",desc:"suggest a hangout — pick who to invite, choose a day, add a note about what you want to do, and optionally add a location with a live map preview.",pos:"top"},
 ],
 map:[
 {id:"tour-map-filter",title:"filter by month",desc:"tap a month to show only that month's activities and proposals on the map. 'all upcoming' shows everything.",pos:"bottom"},
@@ -252,8 +258,9 @@ style={{padding:"14px 16px",marginBottom:8,background:n.read?"#fff":c+"08",borde
 </div>)})}</div></div>)}
 
 /* ===== MAIN APP ===== */
-function Main({user,profile,allUsers,crewId,crewInfo,userCrews,onSettings,onNotifs,onFAQ,onMap,onSwitchCrew,onSelectCrew,onInvite,onArchiveCrew,onDeleteCrew,onMaster,onUpdates,onTour,openProposalId,clearOpenProposal,openActId,clearOpenAct}){
+function Main({user,profile,allUsers,crewId,crewInfo,userCrews,onSettings,onNotifs,onFAQ,onMap,onSwitchCrew,onSelectCrew,onInvite,onArchiveCrew,onDeleteCrew,onMaster,onUpdates,onTour,tourActive,openProposalId,clearOpenProposal,openActId,clearOpenAct}){
 const[sideOpen,setSO]=useState(false);
+useEffect(()=>{if(tourActive)setSO(true)},[tourActive]);
 const today=new Date();
 const[cM,setCM]=useState(today.getMonth());const[cY,setCY]=useState(today.getFullYear());
 const[bt,setBT]=useState({});const[people,setPpl]=useState([]);
@@ -480,8 +487,8 @@ return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fa
 {sideOpen&&<span style={{fontSize:13,fontWeight:700,color:"#1e293b",whiteSpace:"nowrap"}}>menu</span>}
 </button>
 <div style={{padding:8,flex:1,display:"flex",flexDirection:"column",gap:2}}>
-{[["🔔","notifications",onNotifs,uc],["🗺️","crew map",onMap,0],["📅","calendars",onSwitchCrew,0],["🌐","the big picture",onMaster,0]].map(function(x){return(
-<button key={x[1]} onClick={x[2]} style={{display:"flex",alignItems:"center",gap:10,padding:sideOpen?"10px 12px":"10px 14px",borderRadius:10,background:"none",border:"none",cursor:"pointer",width:"100%",textAlign:"left",position:"relative"}}>
+{[["🔔","notifications",onNotifs,uc,"tour-notifs"],["🗺️","crew map",onMap,0,"tour-crewmap"],["📅","calendars",onSwitchCrew,0,"tour-calendars"],["🌐","the big picture",onMaster,0,"tour-bigpicture"]].map(function(x){return(
+<button id={x[4]} key={x[1]} onClick={x[2]} style={{display:"flex",alignItems:"center",gap:10,padding:sideOpen?"10px 12px":"10px 14px",borderRadius:10,background:"none",border:"none",cursor:"pointer",width:"100%",textAlign:"left",position:"relative"}}>
 <span style={{fontSize:18,flexShrink:0,width:24,textAlign:"center"}}>{x[0]}</span>
 {sideOpen&&<span style={{fontSize:13,fontWeight:600,color:"#475569",whiteSpace:"nowrap"}}>{x[1]}</span>}
 {x[3]>0&&<span style={{position:sideOpen?"static":"absolute",top:4,right:4,background:"#ef4444",color:"#fff",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:700,marginLeft:sideOpen?"auto":0}}>{x[3]}</span>}
@@ -515,12 +522,12 @@ return(<div key={uid} style={{padding:"10px 12px",borderBottom:"1px solid #f1f5f
 </button>)})}
 </div>}
 <div style={{padding:8,borderTop:"1px solid #f1f5f9"}}>
-{[["⚙️","settings",onSettings],["❓","FAQ",onFAQ]].map(function(x){return(
-<button key={x[1]} onClick={x[2]} style={{display:"flex",alignItems:"center",gap:10,padding:sideOpen?"8px 12px":"8px 14px",borderRadius:10,background:"none",border:"none",cursor:"pointer",width:"100%",textAlign:"left"}}>
+{[["⚙️","settings",onSettings,"tour-settings"],["❓","FAQ",onFAQ,"tour-faq"]].map(function(x){return(
+<button id={x[3]} key={x[1]} onClick={x[2]} style={{display:"flex",alignItems:"center",gap:10,padding:sideOpen?"8px 12px":"8px 14px",borderRadius:10,background:"none",border:"none",cursor:"pointer",width:"100%",textAlign:"left"}}>
 <span style={{fontSize:16,flexShrink:0,width:24,textAlign:"center"}}>{x[0]}</span>
 {sideOpen&&<span style={{fontSize:12,fontWeight:500,color:"#64748b",whiteSpace:"nowrap"}}>{x[1]}</span>}
 </button>)})}
-<button onClick={function(){au.signOut()}} style={{display:"flex",alignItems:"center",gap:10,padding:sideOpen?"8px 12px":"8px 14px",borderRadius:10,background:"none",border:"none",cursor:"pointer",width:"100%",textAlign:"left"}}>
+<button id="tour-signout" onClick={function(){au.signOut()}} style={{display:"flex",alignItems:"center",gap:10,padding:sideOpen?"8px 12px":"8px 14px",borderRadius:10,background:"none",border:"none",cursor:"pointer",width:"100%",textAlign:"left"}}>
 <span style={{fontSize:16,flexShrink:0,width:24,textAlign:"center"}}>🚪</span>
 {sideOpen&&<span style={{fontSize:12,fontWeight:500,color:"#ef4444",whiteSpace:"nowrap"}}>sign out</span>}
 </button>
@@ -1782,7 +1789,7 @@ if(page==="map"&&profile&&crewId)return<><MapPage user={user} profile={profile} 
 {activeTour==="map"&&<Tour steps={TOUR_STEPS.map} onClose={()=>setActiveTour(null)}/>}</>;
 if(page==="master"&&profile)return<><MasterCalendar user={user} profile={profile} allUsers={allUsers} userCrews={userCrews} onSelectCrew={selectCrew} onSettings={()=>setPage("settings")} onNotifs={()=>setPage("notifications")} onFAQ={()=>setPage("faq")} onMap={()=>{if(crewId)setPage("map");else if(userCrews.length>0){setCrewId(userCrews[0].id);setPage("map")}}} onSwitchCrew={()=>setPage("crews")}/>
 {activeTour==="bigpicture"&&<Tour steps={TOUR_STEPS.bigpicture} onClose={()=>setActiveTour(null)}/>}</>;
-if(page==="app"&&profile&&crewId)return<><Main user={user} profile={profile} allUsers={allUsers} crewId={crewId} crewInfo={crewInfo} userCrews={userCrews} onSettings={()=>setPage("settings")} onNotifs={()=>setPage("notifications")} onFAQ={()=>setPage("faq")} onMap={()=>setPage("map")} onSwitchCrew={()=>setPage("crews")} onSelectCrew={selectCrew} onInvite={()=>setInviteOpen(true)} onArchiveCrew={archiveCrew} onDeleteCrew={deleteCrew} onMaster={()=>setPage("master")} onUpdates={()=>setPage("updates")} onTour={()=>{window.scrollTo({top:0,behavior:"smooth"});setTimeout(()=>setActiveTour("crew"),300)}} openProposalId={openPropId} clearOpenProposal={()=>setOPI(null)} openActId={openActId} clearOpenAct={()=>setOAI(null)}/>
+if(page==="app"&&profile&&crewId)return<><Main user={user} profile={profile} allUsers={allUsers} crewId={crewId} crewInfo={crewInfo} userCrews={userCrews} onSettings={()=>setPage("settings")} onNotifs={()=>setPage("notifications")} onFAQ={()=>setPage("faq")} onMap={()=>setPage("map")} onSwitchCrew={()=>setPage("crews")} onSelectCrew={selectCrew} onInvite={()=>setInviteOpen(true)} onArchiveCrew={archiveCrew} onDeleteCrew={deleteCrew} onMaster={()=>setPage("master")} onUpdates={()=>setPage("updates")} onTour={()=>{window.scrollTo({top:0,behavior:"smooth"});setTimeout(()=>setActiveTour("crew"),300)}} tourActive={activeTour==="crew"} openProposalId={openPropId} clearOpenProposal={()=>setOPI(null)} openActId={openActId} clearOpenAct={()=>setOAI(null)}/>
 <InviteModal isOpen={inviteOpen} onClose={()=>setInviteOpen(false)} crewId={crewId} crewInfo={crewInfo} user={user} profile={profile} allUsers={allUsers}/>
 {activeTour==="crew"&&<Tour steps={TOUR_STEPS.crew} onClose={()=>setActiveTour(null)}/>}</>;
 return null}
