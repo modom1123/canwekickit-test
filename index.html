@@ -1380,6 +1380,20 @@ const[gProps,setGProps]=useState([]);
 const[xDay,setXDay]=useState("");const[xTS,setXTS]=useState("14:00");const[xTE,setXTE]=useState("17:00");
 const[xNote,setXNote]=useState("");const[xLoc,setXLoc]=useState("");const[xTo,setXTo]=useState([]);
 const[xSearch,setXSearch]=useState("");
+const[invites,setInvites]=useState([]);
+
+// Load pending invites
+useEffect(()=>{if(!profile?.email)return;
+const r=db.ref(P("crewInvites")).orderByChild("email").equalTo(profile.email.toLowerCase());
+r.on("value",s=>{const d=s.val();setInvites(d?Object.entries(d).map(([k,v])=>({...v,key:k})):[])}); return()=>r.off()},[profile?.email]);
+
+const acceptInvite=async(inv)=>{
+await db.ref(P(`crews/${inv.crewId}/members/${user.uid}`)).set({name:profile.name,color:profile.color,email:profile.email,uid:user.uid});
+const snap=await db.ref(P(`users/${user.uid}/crews`)).once("value");
+const existing=snap.val()||{};existing[inv.crewId]=true;
+await db.ref(P(`users/${user.uid}/crews`)).set(existing);
+await db.ref(P(`crewInvites/${inv.key}`)).remove();
+onSelectCrew(inv.crewId)};
 
 // Assign each crew a distinct gradient color
 const CREW_COLORS=["#e040fb","#60a5fa","#4ecdc4","#f59e0b","#ef4444","#a78bfa","#22c55e","#f472b6"];
@@ -1525,6 +1539,19 @@ return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fa
 background:"linear-gradient(135deg,#e040fb,#60a5fa,#4ecdc4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>the big picture</h1>
 <p style={{color:"#94a3b8",fontSize:13}}>all your crews, one calendar</p>
 </div>
+
+{/* Pending invites banner */}
+{invites.length>0&&<div style={{marginBottom:16}}>
+{invites.map(inv=>(<div key={inv.key} style={{background:"linear-gradient(135deg,#f59e0b08,#e040fb08)",borderRadius:14,border:"2px solid #f59e0b",padding:"16px 20px",marginBottom:8,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,animation:"pulseInvite 2s ease-in-out infinite"}}>
+<div style={{display:"flex",alignItems:"center",gap:10}}>
+<span style={{fontSize:24}}>{inv.icon||"🎯"}</span>
+<div><div style={{fontSize:15,fontWeight:700,color:"#1e293b"}}>{inv.crewName}</div>
+<div style={{fontSize:12,color:"#94a3b8"}}>{inv.invitedBy} invited you to join</div></div>
+</div>
+<button onClick={()=>acceptInvite(inv)} style={{background:"#22c55e",color:"#fff",border:"none",borderRadius:10,padding:"10px 20px",fontSize:14,fontWeight:700,cursor:"pointer",flexShrink:0,boxShadow:"0 2px 8px rgba(34,197,94,0.3)"}}>join crew</button>
+</div>))}
+<style>{`@keyframes pulseInvite{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,0.15)}50%{box-shadow:0 0 0 8px rgba(245,158,11,0)}}`}</style>
+</div>}
 
 {/* Crew legend */}
 <div id="tour-bp-crews" style={{...sS,padding:"14px 22px"}}>
