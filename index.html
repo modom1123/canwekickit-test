@@ -90,56 +90,70 @@ return(<div style={{marginTop:8}}>
 </div>)}
 
 /* ===== GUIDED TOUR ===== */
-function Tour({steps,onEnd}){
-const[idx,setIdx]=useState(0);const[pos,setPos]=useState({top:0,left:0,width:0,height:0});
-const[tipPos,setTipPos]=useState({top:0,left:0});const[tipAlign,setTipAlign]=useState("below");
-const step=steps[idx];
-
-const measure=useCallback(()=>{if(!step)return;
-const el=document.querySelector(`[data-tour="${step.target}"]`);
-if(!el){setPos({top:0,left:0,width:window.innerWidth,height:0});return}
-const r=el.getBoundingClientRect();const pad=8;
-setPos({top:r.top-pad+window.scrollY,left:r.left-pad,width:r.width+pad*2,height:r.height+pad*2});
-// Position tooltip
-const tipW=300;const tipH=160;
-let tTop=r.bottom+12+window.scrollY;let tLeft=Math.max(12,r.left+r.width/2-tipW/2);let align="below";
-if(tLeft+tipW>window.innerWidth-12)tLeft=window.innerWidth-tipW-12;
-if(r.bottom+tipH+20>window.innerHeight){tTop=r.top-tipH-12+window.scrollY;align="above"}
-setTipPos({top:tTop,left:tLeft});setTipAlign(align);
-// Scroll into view
-el.scrollIntoView({behavior:"smooth",block:"center"})},[step]);
-
-useEffect(()=>{measure();const h=()=>setTimeout(measure,100);window.addEventListener("resize",h);window.addEventListener("scroll",h);
-return()=>{window.removeEventListener("resize",h);window.removeEventListener("scroll",h)}},[idx,measure]);
-useEffect(()=>{const t=setTimeout(measure,300);return()=>clearTimeout(t)},[idx]);
-
-if(!step)return null;const isLast=idx===steps.length-1;const isFirst=idx===0;
-return(<>
-{/* Overlay with cutout */}
-<div style={{position:"fixed",inset:0,zIndex:9998,pointerEvents:"none"}}>
-<svg width="100%" height="100%" style={{position:"absolute",inset:0}}>
-<defs><mask id="tourMask"><rect width="100%" height="100%" fill="#fff"/>
-<rect x={pos.left} y={pos.top-window.scrollY} width={pos.width} height={pos.height} rx={12} fill="#000"/></mask></defs>
-<rect width="100%" height="100%" fill="rgba(0,0,0,0.55)" mask="url(#tourMask)"/></svg></div>
-{/* Spotlight border */}
-<div style={{position:"absolute",top:pos.top,left:pos.left,width:pos.width,height:pos.height,borderRadius:12,border:"2px solid #e040fb",boxShadow:"0 0 0 4px rgba(224,64,251,0.2)",zIndex:9999,pointerEvents:"none",transition:"all 0.35s ease"}}/>
+const TOUR_VERSION=4;// Bump this when adding new feature tours
+const TOUR_STEPS={
+bigpicture:[
+{id:"tour-bp-title",title:"welcome to the big picture",desc:"this is your home base — a merged calendar showing activities, proposals, and overlap windows from all your crews in one view.",pos:"bottom"},
+{id:"tour-bp-crews",title:"your crews",desc:"each crew has its own color. tap any crew pill to jump into that crew's full calendar. you can create as many crews as you want for different friend groups.",pos:"bottom"},
+{id:"tour-bp-calendar",title:"the calendar",desc:"events from all crews appear here. ★ marks days with activities, and ● marks days with overlap. tap the month or year to jump around.",pos:"top"},
+{id:"tour-bp-overlap",title:"can we kick it — all crews",desc:"this section finds days where you and at least one other person are free for 3+ hours, broken down by crew. tap any entry to jump into that crew.",pos:"top"},
+{id:"tour-bp-xcrew",title:"cross-crew proposals",desc:"invite friends from different crews to one hangout. search by name, pick a day and time, and everyone gets notified — even if they're in different crews.",pos:"top"},
+],
+crew:[
+{id:"tour-sidebar",title:"the sidebar",desc:"quick access to everything — notifications, crew map, calendars, settings, and more. tap the ☰ to expand it. your crews are listed at the bottom for fast switching.",pos:"right"},
+{id:"tour-crew-header",title:"your crew",desc:"this shows who's in the current crew. use + invite to add friends, switch to jump between crews, or ⋯ to archive/delete.",pos:"bottom"},
+{id:"tour-calendar",title:"the calendar",desc:"tap any day to add your available time or create an activity. everyone's availability shows in their color. ★ marks days with activities.",pos:"top"},
+{id:"tour-whats-happening",title:"what's happening",desc:"upcoming activities your crew has planned. tap any one to see details, respond (yes we can!, womp womp, raincheck), or edit if you created it.",pos:"top"},
+{id:"tour-overlap",title:"can we kick it?",desc:"the app finds days and times where you overlap with at least one other person for 3+ hours. filter by specific friends or check overlap with everyone.",pos:"top"},
+{id:"tour-proposal",title:"hangout proposals",desc:"suggest a hangout — pick who to invite, choose a day, add a note about what you want to do, and optionally add a location with a map preview.",pos:"top"},
+],
+map:[
+{id:"tour-map-filter",title:"filter by month",desc:"tap a month to show only that month's activities and proposals on the map. 'all upcoming' shows everything.",pos:"bottom"},
+{id:"tour-map-view",title:"the map",desc:"colored dots are activities and proposals. colored pins show where your friends are (based on their address in settings). tap any marker for details.",pos:"top"},
+{id:"tour-map-list",title:"upcoming events",desc:"activities and proposals with locations are listed here. tap one to zoom the map to its pin.",pos:"top"},
+]};
+function Tour({steps,onClose}){
+const[step,setStep]=useState(0);const[pos,setPos]=useState(null);const tRef=useRef(null);
+const s=steps[step];
+useEffect(()=>{if(!s)return;
+const find=()=>{const el=document.getElementById(s.id);
+if(el){el.scrollIntoView({behavior:"smooth",block:"center"});
+setTimeout(()=>{const r=el.getBoundingClientRect();setPos({top:r.top,left:r.left,width:r.width,height:r.height})},400)}
+else setPos(null)};
+find();const t=setTimeout(find,200);return()=>clearTimeout(t)},[step,s]);
+if(!s)return null;
+const isLast=step===steps.length-1;
+const ttTop=pos&&s.pos==="top"?pos.top-12:pos?pos.top+pos.height+12:200;
+const ttLeft=pos?Math.max(12,Math.min(pos.left,window.innerWidth-340)):20;
+return(<div style={{position:"fixed",inset:0,zIndex:2000}}>
+{/* Overlay */}
+<div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",transition:"opacity 0.3s"}}/>
+{/* Spotlight cutout */}
+{pos&&<div style={{position:"fixed",top:pos.top-6,left:pos.left-6,width:pos.width+12,height:pos.height+12,
+borderRadius:12,boxShadow:"0 0 0 9999px rgba(0,0,0,0.45)",background:"transparent",zIndex:2001,pointerEvents:"none",transition:"all 0.4s ease"}}/>}
 {/* Tooltip */}
-<div style={{position:"absolute",top:tipPos.top,left:tipPos.left,width:300,zIndex:10000,transition:"all 0.35s ease"}}>
-<div style={{background:"#fff",borderRadius:14,padding:"20px 22px",boxShadow:"0 12px 40px rgba(0,0,0,0.18)",border:"1px solid #e2e8f0"}}>
-<div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
-<span style={{fontSize:20}}>{step.emoji||"👋"}</span>
-<span style={{fontSize:15,fontWeight:700,color:"#1e293b"}}>{step.title}</span></div>
-<p style={{fontSize:13,color:"#475569",lineHeight:1.6,marginBottom:16}}>{step.desc}</p>
-<div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-<div style={{display:"flex",gap:4}}>{steps.map((_,i)=><div key={i} style={{width:i===idx?16:6,height:6,borderRadius:3,background:i===idx?"#e040fb":"#e2e8f0",transition:"all 0.2s"}}/>)}</div>
-<div style={{display:"flex",gap:8}}>
-{!isFirst&&<button onClick={()=>setIdx(idx-1)} style={{padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0"}}>back</button>}
-{isLast?<button onClick={onEnd} style={{padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",background:"#e040fb",color:"#fff",border:"none"}}>done!</button>
-:<button onClick={()=>setIdx(idx+1)} style={{padding:"6px 14px",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",background:"#e040fb",color:"#fff",border:"none"}}>next</button>}
-</div></div>
-<button onClick={onEnd} style={{position:"absolute",top:8,right:12,background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:16}}>×</button>
-</div></div>
-</>)}
+<div ref={tRef} style={{position:"fixed",top:s.pos==="top"&&pos?pos.top-180:pos?pos.top+pos.height+16:200,
+left:pos?Math.max(16,Math.min(pos.left+pos.width/2-160,window.innerWidth-340)):20,
+width:320,background:"#fff",borderRadius:16,padding:"24px 22px 18px",boxShadow:"0 20px 60px rgba(0,0,0,0.25)",zIndex:2002,
+border:"2px solid #e040fb20"}}>
+{/* Arrow */}
+{pos&&<div style={{position:"absolute",
+[s.pos==="top"?"bottom":"top"]:-8,
+left:"50%",marginLeft:-8,width:0,height:0,
+borderLeft:"8px solid transparent",borderRight:"8px solid transparent",
+[s.pos==="top"?"borderTop":"borderBottom"]:"8px solid #fff"}}/>}
+<div style={{fontSize:11,fontWeight:700,color:"#e040fb",textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>{step+1} of {steps.length}</div>
+<h3 style={{fontSize:16,fontWeight:800,color:"#1e293b",margin:"0 0 8px",fontFamily:"'Nunito',sans-serif"}}>{s.title}</h3>
+<p style={{fontSize:13,color:"#475569",lineHeight:1.6,margin:"0 0 18px"}}>{s.desc}</p>
+{/* Progress dots */}
+<div style={{display:"flex",gap:4,marginBottom:14}}>{steps.map((_,i)=><div key={i} style={{width:i===step?18:6,height:6,borderRadius:3,background:i===step?"#e040fb":i<step?"#e040fb60":"#e2e8f0",transition:"all 0.3s"}}/>)}</div>
+<div style={{display:"flex",gap:8,alignItems:"center"}}>
+{step>0&&<button onClick={()=>setStep(step-1)} style={{padding:"8px 16px",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer",background:"#f8fafc",color:"#64748b",border:"1px solid #e2e8f0"}}>back</button>}
+{isLast?
+<button onClick={onClose} style={{padding:"8px 20px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",background:"#e040fb",color:"#fff",border:"none"}}>got it!</button>:
+<button onClick={()=>setStep(step+1)} style={{padding:"8px 20px",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer",background:"#e040fb",color:"#fff",border:"none"}}>next</button>}
+<button onClick={onClose} style={{marginLeft:"auto",background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:12}}>skip</button>
+</div></div></div>)}
 
 /* ===== LANDING ===== */
 function Landing({onEnter}){return(<div onClick={onEnter} style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"#0a0a0a",cursor:"pointer",userSelect:"none"}}>
@@ -238,7 +252,7 @@ style={{padding:"14px 16px",marginBottom:8,background:n.read?"#fff":c+"08",borde
 </div>)})}</div></div>)}
 
 /* ===== MAIN APP ===== */
-function Main({user,profile,allUsers,crewId,crewInfo,userCrews,onSettings,onNotifs,onFAQ,onMap,onSwitchCrew,onSelectCrew,onInvite,onArchiveCrew,onDeleteCrew,onMaster,onUpdates,openProposalId,clearOpenProposal,openActId,clearOpenAct}){
+function Main({user,profile,allUsers,crewId,crewInfo,userCrews,onSettings,onNotifs,onFAQ,onMap,onSwitchCrew,onSelectCrew,onInvite,onArchiveCrew,onDeleteCrew,onMaster,onUpdates,onTour,openProposalId,clearOpenProposal,openActId,clearOpenAct}){
 const[sideOpen,setSO]=useState(false);
 const today=new Date();
 const[cM,setCM]=useState(today.getMonth());const[cY,setCY]=useState(today.getFullYear());
@@ -460,8 +474,8 @@ const sS={background:"#fff",borderRadius:16,border:"1px solid #e2e8f0",padding:2
 
 return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fafc",minHeight:"100vh",color:"#1e293b",display:"flex"}}>
 {/* LEFT SIDEBAR */}
-<div style={{width:sideOpen?220:56,minHeight:"100vh",background:"#fff",borderRight:"1px solid #e2e8f0",transition:"width 0.25s",overflow:"hidden",flexShrink:0,position:"sticky",top:0,height:"100vh",display:"flex",flexDirection:"column",zIndex:50}}>
-<button data-tour="sidebar-toggle" onClick={()=>setSO(!sideOpen)} style={{background:"none",border:"none",cursor:"pointer",padding:16,display:"flex",alignItems:"center",gap:10,width:"100%",borderBottom:"1px solid #f1f5f9"}}>
+<div id="tour-sidebar" style={{width:sideOpen?220:56,minHeight:"100vh",background:"#fff",borderRight:"1px solid #e2e8f0",transition:"width 0.25s",overflow:"hidden",flexShrink:0,position:"sticky",top:0,height:"100vh",display:"flex",flexDirection:"column",zIndex:50}}>
+<button  onClick={()=>setSO(!sideOpen)} style={{background:"none",border:"none",cursor:"pointer",padding:16,display:"flex",alignItems:"center",gap:10,width:"100%",borderBottom:"1px solid #f1f5f9"}}>
 <span style={{fontSize:20}}>{sideOpen?"✕":"☰"}</span>
 {sideOpen&&<span style={{fontSize:13,fontWeight:700,color:"#1e293b",whiteSpace:"nowrap"}}>menu</span>}
 </button>
@@ -517,7 +531,7 @@ return(<div key={uid} style={{padding:"10px 12px",borderBottom:"1px solid #f1f5f
 
 {SANDBOX&&<div style={{background:"#f59e0b",color:"#fff",textAlign:"center",padding:"6px 0",fontSize:12,fontWeight:700,borderRadius:8,marginBottom:12,letterSpacing:0.5}}>⚠ SANDBOX MODE</div>}
 
-{crewInfo&&<div data-tour="crew-header" style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,padding:"10px 16px",background:"#fff",borderRadius:12,border:"1px solid #e2e8f0"}}>
+{crewInfo&&<div id="tour-crew-header" style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,padding:"10px 16px",background:"#fff",borderRadius:12,border:"1px solid #e2e8f0"}}>
 <div style={{display:"flex",alignItems:"center",gap:10}}>
 <span style={{fontSize:24}}>{crewInfo.icon||"🎯"}</span>
 <div><div style={{fontSize:16,fontWeight:700,fontFamily:"'Nunito',sans-serif"}}>{crewInfo.name||"my crew"}</div>
@@ -547,7 +561,7 @@ delete crew</button>}
 <div style={{display:"flex",alignItems:"center",justifyContent:"center",marginBottom:24,position:"relative"}}>
 <img src="can_we_kick_it_transp.png" alt="logo" onClick={()=>window.scrollTo({top:0,behavior:"smooth"})} style={{height:60,objectFit:"contain",cursor:"pointer"}}/>
 <div ref={mRef} style={{position:"absolute",right:0,top:"50%",transform:"translateY(-50%)"}}>
-<button data-tour="menu" onClick={()=>setMenu(!menuOpen)} style={{background:"none",border:"none",cursor:"pointer",padding:8,display:"flex",flexDirection:"column",gap:4,position:"relative"}}>
+<button  onClick={()=>setMenu(!menuOpen)} style={{background:"none",border:"none",cursor:"pointer",padding:8,display:"flex",flexDirection:"column",gap:4,position:"relative"}}>
 <span style={{width:24,height:2.5,background:"#475569",borderRadius:2,display:"block"}}/><span style={{width:24,height:2.5,background:"#475569",borderRadius:2,display:"block"}}/><span style={{width:24,height:2.5,background:"#475569",borderRadius:2,display:"block"}}/>
 {uc>0&&<div style={{position:"absolute",top:2,right:2,width:16,height:16,borderRadius:"50%",background:"#ef4444",color:"#fff",fontSize:10,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{uc}</div>}</button>
 {menuOpen&&(<div style={{position:"absolute",top:"100%",right:0,background:"#fff",border:"1px solid #e2e8f0",borderRadius:12,boxShadow:"0 8px 30px rgba(0,0,0,0.12)",overflow:"hidden",minWidth:200,zIndex:100,marginTop:4}}>
@@ -557,12 +571,12 @@ delete crew</button>}
 <button onClick={()=>{setMenu(false);onSwitchCrew()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>switch crew</button>
 <button onClick={()=>{setMenu(false);onSettings()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>settings</button>
 <button onClick={()=>{setMenu(false);onUpdates()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>updates</button>
-<button onClick={()=>{setMenu(false);setTour(true);window.scrollTo({top:0,behavior:"smooth"})}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#e040fb",fontWeight:600,borderTop:"1px solid #f1f5f9"}}>🎯 take a tour</button>
+<button onClick={()=>{setMenu(false);onTour()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#e040fb",fontWeight:600,borderTop:"1px solid #f1f5f9"}}>🎯 take a tour</button>
 <button onClick={()=>{setMenu(false);onFAQ()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#1e293b",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>FAQ</button>
 <button onClick={()=>{setMenu(false);au.signOut()}} style={{width:"100%",textAlign:"left",padding:"12px 16px",background:"none",border:"none",cursor:"pointer",fontSize:14,color:"#ef4444",fontWeight:500,borderTop:"1px solid #f1f5f9"}}>sign out</button></div>)}</div></div>
 
 {/* Crew */}
-<div data-tour="crew" style={{...sS,padding:"14px 22px"}}><label style={{fontSize:12,fontWeight:600,color:"#94a3b8",marginBottom:8,display:"block"}}>the crew</label>
+<div id="tour-crew-list" style={{...sS,padding:"14px 22px"}}><label style={{fontSize:12,fontWeight:600,color:"#94a3b8",marginBottom:8,display:"block"}}>the crew</label>
 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{people.map(p=>(<div key={p.name} style={{display:"flex",alignItems:"center",gap:6,background:"#f8fafc",borderRadius:20,padding:"5px 12px",border:`2px solid ${p.color}`}}><div style={{width:8,height:8,borderRadius:"50%",background:p.color}}/><span style={{fontSize:13,fontWeight:600}}>{p.name}</span></div>))}</div></div>
 
 {/* Admin */}
@@ -590,7 +604,7 @@ delete crew</button>}
 <p style={{color:"#94a3b8",fontSize:13,textAlign:"center",marginBottom:16}}>add your available times, find when everyone's free</p>
 
 {/* Calendar */}
-<div data-tour="calendar" style={{...sS,padding:16}}>
+<div id="tour-calendar" style={{...sS,padding:16}}>
 <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:2}}>{DOW.map(d=><div key={d} style={{textAlign:"center",fontSize:11,fontWeight:700,color:"#94a3b8",padding:"8px 0",textTransform:"uppercase",letterSpacing:1}}>{d}</div>)}</div>
 <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
 {cDays.map((day,i)=>{if(day===null)return<div key={`e-${i}`}/>;
@@ -632,7 +646,7 @@ borderRadius:4,padding:"2px 4px",fontWeight:600,borderLeft:`3px dashed ${stC}`,c
 </div></div>
 
 {/* What's Happening */}
-<div data-tour="whats-happening" style={sS}><h2 style={{fontSize:20,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",color:"#f59e0b"}}>what's happening</h2>
+<div id="tour-whats-happening" style={sS}><h2 style={{fontSize:20,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",color:"#f59e0b"}}>what's happening</h2>
 <p style={{color:"#94a3b8",fontSize:12,margin:"0 0 14px"}}>activities your crew has planned</p>
 {(()=>{const ua=acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);return new Date(y,m-1,d)>=today});
 return!ua.length?<p style={{color:"#94a3b8",fontSize:14,fontStyle:"italic"}}>no upcoming activities</p>:
@@ -646,7 +660,7 @@ return(<div key={a.id} onClick={()=>{const[ay,am]=a.date.split("-").map(Number);
 {a.invite&&<div style={{fontSize:12,color:"#94a3b8",marginTop:4}}>invited: {Array.isArray(a.invite)?a.invite.join(", "):a.invite}</div>}</div>)})})()}</div>
 
 {/* Can We Kick It */}
-<div data-tour="overlap" style={sS}><h2 style={{fontSize:20,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",color:"#4ECDC4"}}>can we kick it?</h2>
+<div id="tour-overlap" style={sS}><h2 style={{fontSize:20,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",color:"#4ECDC4"}}>can we kick it?</h2>
 <p style={{color:"#94a3b8",fontSize:12,margin:"0 0 18px"}}>your overlap with at least 1 other person (3+ hrs)</p>
 {people.length<2?<p style={{color:"#94a3b8",fontSize:14,fontStyle:"italic"}}>waiting for friends</p>:(<>
 <div style={{marginBottom:18}}><label style={{fontSize:12,fontWeight:600,color:"#64748b",display:"block",marginBottom:6}}>who do you want to hang with?</label>
@@ -673,7 +687,7 @@ return(<li key={day} style={{padding:"12px 16px",marginBottom:6,background:"rgba
 </>)}</div>
 
 {/* Hangout Proposal */}
-<div data-tour="proposal" style={sS}><h2 style={{fontSize:20,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",background:"linear-gradient(135deg,#60a5fa,#4ecdc4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>hangout proposal</h2>
+<div id="tour-proposal" style={sS}><h2 style={{fontSize:20,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",background:"linear-gradient(135deg,#60a5fa,#4ecdc4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>hangout proposal</h2>
 <p style={{color:"#94a3b8",fontSize:12,margin:"0 0 18px"}}>suggest a day, time, and what you want to do</p>
 {people.length<2?<p style={{color:"#94a3b8",fontSize:14,fontStyle:"italic"}}>waiting for friends</p>:(<>
 <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -1046,7 +1060,7 @@ background:"linear-gradient(135deg,#e040fb,#4ECDC4)",WebkitBackgroundClip:"text"
 <span>● colored dots = activities & proposals</span>
 <span>📍 colored pins = friend areas</span>
 </div>
-<div style={{display:"flex",gap:8,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
+<div id="tour-map-filter" style={{display:"flex",gap:8,alignItems:"center",marginBottom:16,flexWrap:"wrap"}}>
 <span style={{fontSize:12,fontWeight:600,color:"#64748b"}}>filter:</span>
 <button onClick={()=>setFM(null)} style={{padding:"5px 12px",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",
 background:fM===null?"#e040fb":"#f8fafc",color:fM===null?"#fff":"#64748b",border:fM===null?"none":"1px solid #e2e8f0"}}>all upcoming</button>
@@ -1054,9 +1068,9 @@ background:fM===null?"#e040fb":"#f8fafc",color:fM===null?"#fff":"#64748b",border
 <button key={i} onClick={()=>{setFM(i);setFY(i>=today.getMonth()?today.getFullYear():today.getFullYear()+1)}} style={{padding:"5px 10px",borderRadius:8,fontSize:11,fontWeight:600,cursor:"pointer",
 background:isActive?"#e040fb":"#f8fafc",color:isActive?"#fff":"#94a3b8",border:isActive?"none":"1px solid #e2e8f0"}}>{m.slice(0,3)}</button>)})}
 </div>
-<div ref={mapRef} style={{height:480,borderRadius:12,border:"1px solid #e2e8f0",boxShadow:"0 2px 8px rgba(0,0,0,0.08)",marginBottom:20,background:"#e2e8f0"}}/>
+<div id="tour-map-view" ref={mapRef} style={{height:480,borderRadius:12,border:"1px solid #e2e8f0",boxShadow:"0 2px 8px rgba(0,0,0,0.08)",marginBottom:20,background:"#e2e8f0"}}/>
 {loading&&<p style={{color:"#94a3b8",fontSize:13,textAlign:"center"}}>loading map...</p>}
-<div style={{marginTop:8}}>
+<div id="tour-map-list" style={{marginTop:8}}>
 {acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);const dt=new Date(y,m-1,d);if(dt<new Date())return false;if(fM!==null&&(m-1!==fM||y!==fY))return false;return!!a.location}).length>0&&(<>
 <h3 style={{fontSize:16,fontWeight:700,marginBottom:8}}>upcoming activities with locations</h3>
 {acts.filter(a=>{const[y,m,d]=a.date.split("-").map(Number);const dt=new Date(y,m-1,d);if(dt<new Date())return false;if(fM!==null&&(m-1!==fM||y!==fY))return false;return!!a.location}).map(a=>{const c=people.find(p=>p.name===a.person)?.color||"#e040fb";
@@ -1489,7 +1503,7 @@ return(<div style={{fontFamily:"'DM Sans','Nunito',sans-serif",background:"#f8fa
 {/* MAIN CONTENT */}
 <div style={{flex:1,padding:"24px 16px",minWidth:0,overflowX:"hidden"}}><div style={{maxWidth:860,margin:"0 auto"}}>
 
-<div style={{textAlign:"center",marginBottom:24}}>
+<div id="tour-bp-title" style={{textAlign:"center",marginBottom:24}}>
 <img src="can_we_kick_it_transp.png" alt="logo" onClick={()=>window.scrollTo({top:0,behavior:"smooth"})} style={{height:60,objectFit:"contain",cursor:"pointer",marginBottom:8}}/>
 <h1 style={{fontFamily:"'Nunito',sans-serif",fontSize:28,fontWeight:800,marginBottom:4,
 background:"linear-gradient(135deg,#e040fb,#60a5fa,#4ecdc4)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>the big picture</h1>
@@ -1497,7 +1511,7 @@ background:"linear-gradient(135deg,#e040fb,#60a5fa,#4ecdc4)",WebkitBackgroundCli
 </div>
 
 {/* Crew legend */}
-<div style={{...sS,padding:"14px 22px"}}>
+<div id="tour-bp-crews" style={{...sS,padding:"14px 22px"}}>
 <label style={{fontSize:12,fontWeight:600,color:"#94a3b8",marginBottom:8,display:"block"}}>your crews</label>
 <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{(userCrews||[]).map((c,ci)=>{
 const cc=CREW_COLORS[ci%CREW_COLORS.length];
@@ -1518,7 +1532,7 @@ return(<button key={c.id} onClick={()=>onSelectCrew(c.id)} style={{display:"flex
 
 {loading?<div style={{textAlign:"center",padding:40,color:"#94a3b8",fontSize:14}}>loading all crews...</div>:(<>
 {/* Calendar grid */}
-<div style={{...sS,padding:16}}>
+<div id="tour-bp-calendar" style={{...sS,padding:16}}>
 <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:2}}>{DOW.map(d=><div key={d} style={{textAlign:"center",fontSize:11,fontWeight:700,color:"#94a3b8",padding:"8px 0",textTransform:"uppercase",letterSpacing:1}}>{d}</div>)}</div>
 <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
 {cDays.map((day,i)=>{if(day===null)return<div key={`e-${i}`}/>;
@@ -1554,7 +1568,7 @@ style={{fontSize:8,background:"linear-gradient(135deg,#e040fb15,#60a5fa15)",colo
 </div></div>
 
 {/* Upcoming overlap days */}
-<div style={sS}>
+<div id="tour-bp-overlap" style={sS}>
 <h2 style={{fontSize:20,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",background:"linear-gradient(135deg,#e040fb,#60a5fa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>can we kick it? — all crews</h2>
 <p style={{color:"#94a3b8",fontSize:12,margin:"0 0 14px"}}>days with 3+ hours of overlap across any crew</p>
 {allOverlaps.length===0?<p style={{color:"#94a3b8",fontSize:14,fontStyle:"italic"}}>no overlap days this month</p>:
@@ -1602,7 +1616,7 @@ style={{padding:"12px 16px",marginBottom:6,background:a.crewColor+"08",borderRad
 </div>)})})()}</div>
 
 {/* Cross-Crew Proposal Form */}
-<div style={{...sS,borderLeft:"4px solid transparent",borderImage:"linear-gradient(135deg,#e040fb,#60a5fa) 1"}}>
+<div id="tour-bp-xcrew" style={{...sS,borderLeft:"4px solid transparent",borderImage:"linear-gradient(135deg,#e040fb,#60a5fa) 1"}}>
 <h2 style={{fontSize:20,fontWeight:800,margin:"0 0 6px",fontFamily:"'Nunito',sans-serif",background:"linear-gradient(135deg,#e040fb,#60a5fa)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>cross-crew proposal</h2>
 <p style={{color:"#94a3b8",fontSize:12,margin:"0 0 18px"}}>invite friends from any crew to hang out</p>
 <div style={{display:"flex",flexDirection:"column",gap:14}}>
@@ -1674,6 +1688,7 @@ const[page,setPage]=useState("loading");const[user,setUser]=useState(null);const
 const[openPropId,setOPI]=useState(null);const[openActId,setOAI]=useState(null);
 const[crewId,setCrewId]=useState(null);const[crewInfo,setCrewInfo]=useState(null);const[userCrews,setUC]=useState([]);
 const[inviteOpen,setInviteOpen]=useState(false);
+const[activeTour,setActiveTour]=useState(null);// "bigpicture"|"crew"|"map"|null
 
 useEffect(()=>{db.ref(P("users")).on("value",s=>setAU(s.val()||{}))},[]);
 
@@ -1717,8 +1732,13 @@ await db.ref(P(`users/${u.uid}/crews`)).set({[migId]:true});
 setCrewId(migId);setUC([{id:migId,name:p.name+"'s crew",icon:"🎯",owner:u.uid,memberCount:1}]);
 setPage(pg=>pg==="loading"||pg==="auth"?"master":pg)
 }else if(crewList.length===1){setCrewId(crewList[0].id);
-setPage(pg=>{if(pg==="loading"||pg==="auth")return p.hasSeenOnboarding===false?"onboarding":"master";return pg})
-}else{setCrewId(crewList[0].id);setPage(pg=>{if(pg==="loading"||pg==="auth")return p.hasSeenOnboarding===false?"onboarding":"master";return pg})}
+const needsTour=p.hasSeenOnboarding===false||(p.tourVersion||0)<TOUR_VERSION;
+if(needsTour){db.ref(P(`users/${u.uid}`)).update({hasSeenOnboarding:true,tourVersion:TOUR_VERSION});setTimeout(()=>setActiveTour("bigpicture"),600)}
+setPage(pg=>{if(pg==="loading"||pg==="auth")return"master";return pg})
+}else{setCrewId(crewList[0].id);
+const needsTour=p.hasSeenOnboarding===false||(p.tourVersion||0)<TOUR_VERSION;
+if(needsTour){db.ref(P(`users/${u.uid}`)).update({hasSeenOnboarding:true,tourVersion:TOUR_VERSION});setTimeout(()=>setActiveTour("bigpicture"),600)}
+setPage(pg=>{if(pg==="loading"||pg==="auth")return"master";return pg})}
 }else if(SANDBOX){
 const prod=await db.ref(`users/${u.uid}`).once("value");const pp=prod.val();
 if(pp){await db.ref(P(`users/${u.uid}`)).set({...pp,hasSeenOnboarding:true});setProfile(pp);setPage("master")}
@@ -1752,17 +1772,19 @@ setCrewId(null);setUC(prev=>prev.filter(c=>c.id!==crewId));setPage("master")};
 if(page==="loading")return<div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0a0a0a"}}><p style={{color:"#475569",fontSize:16,fontFamily:"'DM Sans',sans-serif"}}>loading...</p></div>;
 if(page==="landing")return<Landing onEnter={()=>setPage("auth")}/>;
 if(page==="auth")return<Auth onAuth={u=>setUser(u)}/>;
-if(page==="onboarding"&&user)return<Onboarding user={user} onDone={()=>setPage("master")}/>;
 if(page==="crews"&&profile)return<CrewSelector user={user} profile={profile} crews={userCrews} onSelect={selectCrew} onCreate={()=>setPage("createCrew")} onMaster={()=>setPage("master")}/>;
 if(page==="createCrew"&&profile)return<CreateCrew user={user} profile={profile} onCreated={(id)=>{setCrewId(id);setPage("app")}} onCancel={userCrews.length?()=>setPage("master"):null}/>;
 if(page==="settings"&&profile)return<Settings user={user} profile={profile} allUsers={allUsers} crewId={crewId} onBack={()=>setPage(crewId?"app":"master")}/>;
 if(page==="notifications"&&profile)return<Notifs user={user} people={people} profile={profile} onBack={()=>setPage(crewId?"app":"master")} onViewProposal={(id)=>{setOPI(id);setPage("app")}} onViewActivity={(id)=>{setOAI(id);setPage("app")}}/>;
 if(page==="faq")return<FAQ onBack={()=>setPage(crewId?"app":"master")}/>;
 if(page==="updates")return<Updates onBack={()=>setPage(crewId?"app":"master")}/>;
-if(page==="map"&&profile&&crewId)return<MapPage user={user} profile={profile} allUsers={allUsers} people={people} crewId={crewId} onBack={()=>setPage("app")}/>;
-if(page==="master"&&profile)return<MasterCalendar user={user} profile={profile} allUsers={allUsers} userCrews={userCrews} onSelectCrew={selectCrew} onSettings={()=>setPage("settings")} onNotifs={()=>setPage("notifications")} onFAQ={()=>setPage("faq")} onMap={()=>{if(crewId)setPage("map");else if(userCrews.length>0){setCrewId(userCrews[0].id);setPage("map")}}} onSwitchCrew={()=>setPage("crews")}/>;
-if(page==="app"&&profile&&crewId)return<><Main user={user} profile={profile} allUsers={allUsers} crewId={crewId} crewInfo={crewInfo} userCrews={userCrews} onSettings={()=>setPage("settings")} onNotifs={()=>setPage("notifications")} onFAQ={()=>setPage("faq")} onMap={()=>setPage("map")} onSwitchCrew={()=>setPage("crews")} onSelectCrew={selectCrew} onInvite={()=>setInviteOpen(true)} onArchiveCrew={archiveCrew} onDeleteCrew={deleteCrew} onMaster={()=>setPage("master")} onUpdates={()=>setPage("updates")} openProposalId={openPropId} clearOpenProposal={()=>setOPI(null)} openActId={openActId} clearOpenAct={()=>setOAI(null)}/>
-<InviteModal isOpen={inviteOpen} onClose={()=>setInviteOpen(false)} crewId={crewId} crewInfo={crewInfo} user={user} profile={profile} allUsers={allUsers}/></>;
+if(page==="map"&&profile&&crewId)return<><MapPage user={user} profile={profile} allUsers={allUsers} people={people} crewId={crewId} onBack={()=>setPage("app")}/>
+{activeTour==="map"&&<Tour steps={TOUR_STEPS.map} onClose={()=>setActiveTour(null)}/>}</>;
+if(page==="master"&&profile)return<><MasterCalendar user={user} profile={profile} allUsers={allUsers} userCrews={userCrews} onSelectCrew={selectCrew} onSettings={()=>setPage("settings")} onNotifs={()=>setPage("notifications")} onFAQ={()=>setPage("faq")} onMap={()=>{if(crewId)setPage("map");else if(userCrews.length>0){setCrewId(userCrews[0].id);setPage("map")}}} onSwitchCrew={()=>setPage("crews")}/>
+{activeTour==="bigpicture"&&<Tour steps={TOUR_STEPS.bigpicture} onClose={()=>setActiveTour(null)}/>}</>;
+if(page==="app"&&profile&&crewId)return<><Main user={user} profile={profile} allUsers={allUsers} crewId={crewId} crewInfo={crewInfo} userCrews={userCrews} onSettings={()=>setPage("settings")} onNotifs={()=>setPage("notifications")} onFAQ={()=>setPage("faq")} onMap={()=>setPage("map")} onSwitchCrew={()=>setPage("crews")} onSelectCrew={selectCrew} onInvite={()=>setInviteOpen(true)} onArchiveCrew={archiveCrew} onDeleteCrew={deleteCrew} onMaster={()=>setPage("master")} onUpdates={()=>setPage("updates")} onTour={()=>{window.scrollTo({top:0,behavior:"smooth"});setTimeout(()=>setActiveTour("crew"),300)}} openProposalId={openPropId} clearOpenProposal={()=>setOPI(null)} openActId={openActId} clearOpenAct={()=>setOAI(null)}/>
+<InviteModal isOpen={inviteOpen} onClose={()=>setInviteOpen(false)} crewId={crewId} crewInfo={crewInfo} user={user} profile={profile} allUsers={allUsers}/>
+{activeTour==="crew"&&<Tour steps={TOUR_STEPS.crew} onClose={()=>setActiveTour(null)}/>}</>;
 return null}
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
 </script>
