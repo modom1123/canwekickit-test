@@ -3,6 +3,12 @@
 <head>
   <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover"/>
   <title>can we kick it</title>
+  <link rel="manifest" href="manifest.json"/>
+  <meta name="theme-color" content="#e040fb"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="kick it"/>
+  <link rel="apple-touch-icon" href="icon-192.png"/>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Nunito:wght@700;800&display=swap" rel="stylesheet"/>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -26,6 +32,8 @@ input,button,select,textarea{font-size:16px}
 <script>
 firebase.initializeApp({apiKey:"AIzaSyDMEbkXMghCBPdaiT3JNoVBzSpEOB0chbc",authDomain:"can-we-kick-it.firebaseapp.com",databaseURL:"https://can-we-kick-it-default-rtdb.firebaseio.com",projectId:"can-we-kick-it",storageBucket:"can-we-kick-it.firebasestorage.app",messagingSenderId:"221903524757",appId:"1:221903524757:web:66d58e49727f96ccf09c9c"});
 window.db=firebase.database();window.auth=firebase.auth();
+window.deferredInstallPrompt=null;
+window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();window.deferredInstallPrompt=e});
 </script>
 <script type="text/babel">
 const{useState,useMemo,useCallback,useEffect,useRef}=React;
@@ -1387,6 +1395,12 @@ const[xDay,setXDay]=useState("");const[xTS,setXTS]=useState("14:00");const[xTE,s
 const[xNote,setXNote]=useState("");const[xLoc,setXLoc]=useState("");const[xTo,setXTo]=useState([]);
 const[xSearch,setXSearch]=useState("");
 const[invites,setInvites]=useState([]);
+const[showInstall,setShowInstall]=useState(false);
+const isStandalone=window.matchMedia&&window.matchMedia("(display-mode: standalone)").matches||window.navigator.standalone;
+useEffect(()=>{if(!isStandalone&&window.deferredInstallPrompt)setShowInstall(true);
+else if(!isStandalone){const t=setTimeout(()=>{if(window.deferredInstallPrompt)setShowInstall(true)},2000);return()=>clearTimeout(t)}},[]);
+const handleInstall=async()=>{const p=window.deferredInstallPrompt;if(!p)return;p.prompt();const r=await p.userChoice;
+if(r.outcome==="accepted")setShowInstall(false);window.deferredInstallPrompt=null};
 
 // Load pending invites
 useEffect(()=>{if(!profile?.email)return;
@@ -1559,6 +1573,16 @@ background:"linear-gradient(135deg,#e040fb,#60a5fa,#4ecdc4)",WebkitBackgroundCli
 </div>))}
 <style>{`@keyframes pulseInvite{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,0.15)}50%{box-shadow:0 0 0 8px rgba(245,158,11,0)}}`}</style>
 </div>}
+
+{/* Install banner */}
+{showInstall&&!isStandalone&&<div style={{marginBottom:16,padding:"16px 20px",background:"linear-gradient(135deg,#e040fb08,#60a5fa08)",borderRadius:14,border:"1px solid #e040fb30",display:"flex",alignItems:"center",gap:12}}>
+<span style={{fontSize:28}}>📲</span>
+<div style={{flex:1}}><div style={{fontSize:14,fontWeight:700,color:"#1e293b"}}>add to home screen</div>
+<div style={{fontSize:12,color:"#64748b"}}>install the app for a fullscreen experience — no browser bar</div></div>
+<div style={{display:"flex",gap:6,flexShrink:0}}>
+<button onClick={handleInstall} style={{background:"#e040fb",color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",fontSize:13,fontWeight:600,cursor:"pointer"}}>install</button>
+<button onClick={()=>setShowInstall(false)} style={{background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:16}}>×</button>
+</div></div>}
 
 {/* Crew legend */}
 <div id="tour-bp-crews" style={{...sS,padding:"14px 22px"}}>
@@ -1837,6 +1861,9 @@ if(page==="app"&&profile&&crewId)return<><Main user={user} profile={profile} all
 {activeTour==="crew"&&<Tour steps={TOUR_STEPS.crew} onClose={()=>setActiveTour(null)}/>}</>;
 return null}
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+<script>
+if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').then(r=>console.log('SW registered',r.scope)).catch(e=>console.log('SW failed',e))})}
 </script>
 </body>
 </html>
